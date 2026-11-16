@@ -29,6 +29,20 @@ public sealed record School(string Id, string Code, string Name, string Zone, st
 /// <summary>Teacher, administration employee, or school social worker.</summary>
 public sealed record SchoolStaff(string Id, string SchoolId, string EmployeeCode, string FullName,
     string Category, string JobTitle, string Specialization, string Qualification, string Gender, bool IsActive);
+/// <summary>Grade and section within one school and one academic year.</summary>
+public sealed record SchoolGrade(string Id, string SchoolId, string AcademicYear, int Grade, string Section)
+{
+    public string DisplayName => $"الصف {Grade} — الشعبة {Section}";
+}
+public sealed record SchoolStudent(string Id, string SchoolId, string StudentCode, string FullName,
+    int Grade, string Section, string Gender, string GuardianName, string GuardianPhone,
+    string Notes, bool IsActive, string AcademicYear);
+public sealed record StudentResult(string Id, string StudentId, string AcademicYear,
+    string Term, string Subject, int Score, int Maximum, string Notes);
+public sealed record StudentAssessment(string Id, string StudentId, string AcademicYear,
+    string Category, string Rating, string Notes, DateTimeOffset RecordedAt);
+public sealed record StudentAttendance(string Id, string StudentId, string Date, string Status, string Notes);
+
 public sealed record EnrollmentLine(string Grade, int Boys, int Girls)
 {
     public int Total => checked(Boys + Girls);
@@ -73,6 +87,17 @@ public static class AccessPolicy
     public static bool CanEditSchoolProfile(UserAccount actor, string schoolId) =>
         CanSeeSchool(actor, schoolId) && Has(actor, PermissionFlags.ManageSchoolProfile) &&
          (actor.Role is Roles.Admin or Roles.Statistician or Roles.Principal or Roles.Entry);
+
+    public static bool CanSeeStudents(UserAccount actor, string schoolId) =>
+        CanSeeSchool(actor, schoolId) && Has(actor, PermissionFlags.ViewStudents);
+
+    public static bool CanManageStudents(UserAccount actor, string schoolId) =>
+        CanSeeStudents(actor, schoolId) && Has(actor, PermissionFlags.ManageStudents) &&
+        actor.Role is Roles.Admin or Roles.Statistician or Roles.Principal or Roles.Entry;
+
+    public static bool CanManageStudentEvaluation(UserAccount actor, string schoolId) =>
+        CanSeeStudents(actor, schoolId) && Has(actor, PermissionFlags.ManageStudentEvaluation) &&
+        actor.Role is Roles.Admin or Roles.Statistician or Roles.Principal or Roles.Entry;
 
     public static bool CanCreateUsers(UserAccount actor) =>
         actor.Role == Roles.Admin && Has(actor, PermissionFlags.ManageUsers);

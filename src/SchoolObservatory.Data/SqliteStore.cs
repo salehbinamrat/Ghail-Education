@@ -118,6 +118,7 @@ public sealed partial class SqliteStore
         cmd.ExecuteNonQuery();
         MigrateUserPermissions(con);
         MigrateSchoolRecords(con);
+        MigrateStudentRecords(con);
     }
 
     public bool HasUsers()
@@ -371,6 +372,7 @@ public sealed partial class SqliteStore
         CheckGender(school.Gender);
         using var con = Open();
         using var tx = con.BeginTransaction();
+        EnsureSchoolStructureCompatible(con, tx, school.Id, DatabaseStage(school.Stage), school.Gender);
         using (var cmd = Cmd(con, tx,
             "UPDATE schools SET code=$c,name=$n,zone=$z,ownership=$o,stage=$s,gender=$g,is_active=$a WHERE id=$id",
             ("$id", school.Id), ("$c", school.Code.Trim()), ("$n", school.Name.Trim()),

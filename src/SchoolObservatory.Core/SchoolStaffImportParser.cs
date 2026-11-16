@@ -36,8 +36,14 @@ public static class SchoolStaffImportParser
         ["gender"] = "gender", ["الجنس"] = "gender"
     };
 
-    public static IReadOnlyList<StaffImportRow> Parse(string path)
+    public static IReadOnlyList<StaffImportRow> Parse(string path) =>
+        ReadRows(ReadStructuredTable(path, MatchesHeaders));
+
+    /// <summary>Shared bounded OOXML table extraction for staff and student imports.</summary>
+    public static IReadOnlyList<IReadOnlyList<string>> ReadStructuredTable(
+        string path, Func<IReadOnlyList<string>, bool> matchesHeaders)
     {
+        ArgumentNullException.ThrowIfNull(matchesHeaders);
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
             throw new ArgumentException("اختر ملف سجلات موجودا.");
         var extension = Path.GetExtension(path).ToLowerInvariant();
@@ -52,13 +58,13 @@ public static class SchoolStaffImportParser
             archive.Entries.Sum(e => e.Length) > 40_000_000)
             throw new ArgumentException("الملف المضغوط يحتوي محتوى أكبر من الحد الآمن.");
 
-        var rows = extension == ".docx"
-            ? ParseWord(archive)
+        return extension == ".docx"
+            ? ParseWord(archive, matchesHeaders)
             : ParseExcel(archive);
-        return ReadRows(rows);
     }
 
-    private static IReadOnlyList<IReadOnlyList<string>> ParseWord(ZipArchive archive)
+    private static IReadOnlyList<IReadOnlyList<string>> ParseWord(
+        ZipArchive archive, Func<IReadOnlyList<string>, bool> matchesHeaders)
     {
         XNamespace word = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
         var document = ReadXml(archive, "word/document.xml");
@@ -71,7 +77,7 @@ public static class SchoolStaffImportParser
                         .Select(p => string.Concat(p.Descendants(word + "t").Select(t => t.Value)))
                         .Where(x => x.Length > 0)).Trim()).ToArray())
                 .ToArray();
-            if (rows.Length >= 2 && MatchesHeaders(rows[0]))
+            if (rows.Length >= 2 && matchesHeaders(rows[0]))
             {
                 // Word cells with spans or nested tables shift the column-to-field mapping.
                 // Reject them instead of storing an employee under the wrong school.
@@ -79,10 +85,12 @@ public static class SchoolStaffImportParser
                     table.Descendants(word + "vMerge").Any() ||
                     table.Descendants(word + "tbl").Any())
                     throw new ArgumentException("جدول Word يحتوي خلايا مدمجة أو جداول داخلية؛ افصل الخلايا قبل استيراد بيانات المدارس.");
+                if (rows.Length > MaxRows + 1)
+                    throw new ArgumentException("عدد صفوف الجدول يتجاوز الحد المسموح.");
                 return rows;
             }
         }
-        throw new ArgumentException("لم يعثر على جدول Word يحتوي عناوين رمز المدرسة والرقم الوظيفي والاسم والفئة.");
+        throw new ArgumentException("لم يعثر على جدول Word منظم بعناوين الأعمدة المطلوبة.");
     }
 
     private static IReadOnlyList<IReadOnlyList<string>> ParseExcel(ZipArchive archive)
