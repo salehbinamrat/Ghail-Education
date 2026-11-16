@@ -69,6 +69,12 @@ public sealed class DelegatedAdministrationTests
         Assert.False(AccessPolicy.CanEditSchool(viewer));
         Assert.Throws<UnauthorizedAccessException>(() => db.UpdateUserPermissions(manager, owner.Id,
             (long)PermissionFlags.ViewSchools));
+        db.CreateUser(owner, "senior", "Strong-Senior-Password-123!", Roles.Statistician, null,
+            (long)(PermissionFlags.ViewSchools | PermissionFlags.ManageSchools));
+        var senior = Assert.IsType<UserAccount>(db.Authenticate("senior", "Strong-Senior-Password-123!"));
+        Assert.Throws<UnauthorizedAccessException>(() => db.SetUserActive(manager, senior.Id, false));
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            db.ResetUserPassword(manager, senior.Id, "Strong-Replacement-456!"));
     }
 
     [Fact]
