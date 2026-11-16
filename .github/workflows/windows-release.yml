@@ -1,0 +1,102 @@
+name: Windows Release
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, 'feature/**', 'fix/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-tests:
+    name: Release / tests-first
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore SchoolObservatory.sln
+      - run: dotnet build SchoolObservatory.sln --configuration Release --no-restore -warnaserror
+      - run: dotnet test SchoolObservatory.sln --configuration Release --no-build --no-restore --logger "trx;LogFileName=release-tests.trx"
+
+  build-packages:
+    name: Release / package-${{ matrix.arch }}
+    runs-on: windows-latest
+    needs: release-tests
+    timeout-minutes: 40
+    strategy:
+      fail-fast: true
+      matrix:
+        arch: [x86, x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build self-contained portable
+        shell: pwsh
+        run: |
+          $arch = '${{ matrix.arch }}'
+          dotnet publish src/SchoolObservatory.Desktop/SchoolObservatory.Desktop.csproj -c Release -r "win-$arch" --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o "artifacts/publish/$arch"
+          if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed' }
+          if (!(Test-Path "artifacts/publish/$arch/SchoolObservatory.exe")) { throw 'Executable missing' }
+          New-Item -ItemType Directory -Force -Path artifacts/packages | Out-Null
+          Compress-Archive -Path "artifacts/publish/$arch/*" -DestinationPath "artifacts/packages/SchoolObservatory-$arch-Portable.zip" -Force
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --no-progress -y
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          }
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $arch = '${{ matrix.arch }}'
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          $publish = (Resolve-Path "artifacts/publish/$arch").Path
+          & $iscc "/DAppArch=$arch" "/DPublishDir=$publish" "installer/SchoolObservatory.iss"
+          if ($LASTEXITCODE -ne 0) { throw 'Installer packaging failed' }
+          if (!(Test-Path "artifacts/installers/SchoolObservatory-$arch-Installer.exe")) { throw 'Installer missing' }
+      - name: Archive release deliverables
+        shell: pwsh
+        run: |
+          $arch = '${{ matrix.arch }}'
+          Copy-Item "artifacts/installers/SchoolObservatory-$arch-Installer.exe" "artifacts/packages/"
+          Get-FileHash "artifacts/packages/SchoolObservatory-$arch-Portable.zip" -Algorithm SHA256 | ForEach-Object { "{0}  {1}" -f $_.Hash, (Split-Path $_.Path -Leaf) } | Out-File -FilePath "artifacts/packages/SHA256-$arch.txt" -Encoding utf8
+          Get-FileHash "artifacts/packages/SchoolObservatory-$arch-Installer.exe" -Algorithm SHA256 | ForEach-Object { "{0}  {1}" -f $_.Hash, (Split-Path $_.Path -Leaf) } | Out-File -FilePath "artifacts/packages/SHA256-$arch.txt" -Append -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: school-observatory-${{ matrix.arch }}
+          path: artifacts/packages/*${{ matrix.arch }}*
+          if-no-files-found: error
+
+  verify-four-outputs:
+    name: Release / verify-all-4
+    runs-on: windows-latest
+    needs: build-packages
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: school-observatory-*
+          merge-multiple: true
+          path: release
+      - name: Require two portable and two installers
+        shell: pwsh
+        run: |
+          $expected = @(
+            'SchoolObservatory-x86-Portable.zip',
+            'SchoolObservatory-x86-Installer.exe',
+            'SchoolObservatory-x64-Portable.zip',
+            'SchoolObservatory-x64-Installer.exe'
+          )
+          foreach ($name in $expected) {
+            if (!(Test-Path "release/$name")) { throw "Missing output: $name" }
+          }
+          Get-ChildItem release | Select-Object Name,Length

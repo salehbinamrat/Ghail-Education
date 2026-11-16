@@ -1,0 +1,35 @@
+name: Windows Core
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, 'feature/**', 'fix/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core-tests:
+    name: Core / build-and-test
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore SchoolObservatory.sln
+      - name: Build all projects
+        run: dotnet build SchoolObservatory.sln --configuration Release --no-restore -warnaserror
+      - name: Run tests
+        run: dotnet test SchoolObservatory.sln --configuration Release --no-build --no-restore --logger "trx;LogFileName=core-tests.trx"
+      - name: Test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-core-testlogs
+          path: '**/TestResults/*.trx'
+          if-no-files-found: ignore
