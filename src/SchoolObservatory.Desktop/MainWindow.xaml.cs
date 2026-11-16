@@ -435,6 +435,11 @@ public partial class MainWindow : Window
                     MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }));
+        schoolBox.SelectionChanged += (_, _) =>
+        {
+            if (schoolBox.SelectedItem is School school)
+                importPanel.IsEnabled = AccessPolicy.CanEditStaff(_actor, school.Id);
+        };
         root.Children.Add(Box(importPanel));
         root.Children.Add(Box(editor));
         Display("كادر المدارس والسجلات", root);
