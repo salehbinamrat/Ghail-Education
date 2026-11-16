@@ -330,15 +330,19 @@ public sealed partial class SqliteStore
         if (rows.Count == 0 || rows.Count > 3_000) throw new ArgumentException("عدد المدارس في ملف الاستيراد غير صحيح.");
         if (rows.Select(r => r.Code.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != rows.Count)
             throw new ArgumentException("الملف يحتوي رموز مدارس مكررة.");
-        foreach (var row in rows) CheckSchoolInput(row.Code, row.Name, row.Zone, row.Ownership, row.Stage);
+        foreach (var row in rows)
+        {
+            CheckSchoolInput(row.Code, row.Name, row.Zone, row.Ownership, row.Stage);
+            CheckGender(row.Gender);
+        }
         using var con = Open();
         using var tx = con.BeginTransaction();
 
         // Prepare a single statement for the complete atomic batch rather than 1 command per school.
         using var insert = Cmd(con, tx,
-            "INSERT INTO schools(id,code,name,zone,ownership,stage,created_utc) VALUES($id,$c,$n,$z,$o,$s,$at)",
+            "INSERT INTO schools(id,code,name,zone,ownership,stage,gender,created_utc) VALUES($id,$c,$n,$z,$o,$s,$g,$at)",
             ("$id", ""), ("$c", ""), ("$n", ""), ("$z", ""),
-            ("$o", ""), ("$s", ""), ("$at", ""));
+            ("$o", ""), ("$s", ""), ("$g", ""), ("$at", ""));
         insert.Prepare();
         var createdAt = Utc();
         foreach (var row in rows)
@@ -348,7 +352,8 @@ public sealed partial class SqliteStore
             insert.Parameters["$n"].Value = row.Name.Trim();
             insert.Parameters["$z"].Value = row.Zone.Trim();
             insert.Parameters["$o"].Value = row.Ownership;
-            insert.Parameters["$s"].Value = row.Stage.Trim();
+            insert.Parameters["$s"].Value = DatabaseStage(row.Stage);
+            insert.Parameters["$g"].Value = row.Gender;
             insert.Parameters["$at"].Value = createdAt;
             insert.ExecuteNonQuery();
         }
