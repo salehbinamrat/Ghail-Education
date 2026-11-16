@@ -71,11 +71,21 @@ jobs:
           Copy-Item "artifacts/installers/SchoolObservatory-$arch-Installer.exe" "artifacts/packages/"
           Get-FileHash "artifacts/packages/SchoolObservatory-$arch-Portable.zip" -Algorithm SHA256 | ForEach-Object { "{0}  {1}" -f $_.Hash, (Split-Path $_.Path -Leaf) } | Out-File -FilePath "artifacts/packages/SHA256-$arch.txt" -Encoding utf8
           Get-FileHash "artifacts/packages/SchoolObservatory-$arch-Installer.exe" -Algorithm SHA256 | ForEach-Object { "{0}  {1}" -f $_.Hash, (Split-Path $_.Path -Leaf) } | Out-File -FilePath "artifacts/packages/SHA256-$arch.txt" -Append -Encoding utf8
-      - uses: actions/upload-artifact@v4
+      # Each deliverable is a separate artifact; do not bundle an .exe with its Portable ZIP.
+      - name: Upload standalone Portable download
+        uses: actions/upload-artifact@v4
         with:
-          name: school-observatory-${{ matrix.arch }}
-          path: artifacts/packages/*${{ matrix.arch }}*
+          name: school-observatory-${{ matrix.arch }}-portable
+          path: artifacts/packages/SchoolObservatory-${{ matrix.arch }}-Portable.zip
           if-no-files-found: error
+          compression-level: 0
+      - name: Upload standalone Installer download
+        uses: actions/upload-artifact@v4
+        with:
+          name: school-observatory-${{ matrix.arch }}-installer
+          path: artifacts/packages/SchoolObservatory-${{ matrix.arch }}-Installer.exe
+          if-no-files-found: error
+          compression-level: 0
 
   verify-four-outputs:
     name: Release / verify-all-4
@@ -84,7 +94,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: school-observatory-*
+          pattern: school-observatory-*-*
           merge-multiple: true
           path: release
       - name: Require two portable and two installers
@@ -97,6 +107,29 @@ jobs:
             'SchoolObservatory-x64-Installer.exe'
           )
           foreach ($name in $expected) {
-            if (!(Test-Path "release/$name")) { throw "Missing output: $name" }
+            $item = Get-Item "release/$name" -ErrorAction Stop
+            if ($item.Length -lt 500000) { throw "Unexpectedly small/corrupted distribution: $name" }
+            $stream = [System.IO.File]::OpenRead($item.FullName)
+            try {
+              $header = New-Object byte[] 4
+              [void]$stream.Read($header, 0, 4)
+              if ($name.EndsWith('.exe') -and ($header[0] -ne 0x4d -or $header[1] -ne 0x5a)) {
+                throw "Invalid Windows EXE header: $name"
+              }
+              if ($name.EndsWith('.zip') -and ($header[0] -ne 0x50 -or $header[1] -ne 0x4b)) {
+                throw "Invalid ZIP header: $name"
+              }
+            } finally { $stream.Dispose() }
           }
+          $zipFiles = Get-ChildItem release -Filter '*-Portable.zip'
+          Add-Type -AssemblyName System.IO.Compression
+          foreach ($zip in $zipFiles) {
+            $archive = [System.IO.Compression.ZipFile]::OpenRead($zip.FullName)
+            try {
+              if (-not ($archive.Entries | Where-Object { $_.FullName -eq 'SchoolObservatory.exe' })) {
+                throw "Portable download lacks SchoolObservatory.exe: $($zip.Name)"
+              }
+            } finally { $archive.Dispose() }
+          }
+          if ((Get-ChildItem release -File).Count -ne 4) { throw 'Expected exactly four standalone downloads.' }
           Get-ChildItem release | Select-Object Name,Length
