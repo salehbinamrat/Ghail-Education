@@ -118,6 +118,7 @@ public sealed partial class SqliteStore
         cmd.ExecuteNonQuery();
         MigrateUserPermissions(con);
         MigrateSchoolRecords(con);
+        MigrateStudentRecords(con);
     }
 
     public bool HasUsers()
