@@ -85,6 +85,37 @@ public partial class MainWindow
             ("ولي الأمر", "GuardianName", false), ("الحالة", "StatusArabic", false));
         roster.MaxHeight = 480;
         root.Children.Add(Box(roster));
+        var exportRoster = Btn("تصدير كشف الصف CSV", (_, _) => Safe(() =>
+        {
+            if (schoolPicker.SelectedItem is not School school ||
+                gradePicker.SelectedItem is not SchoolGrade grade)
+                throw new InvalidOperationException("حدد المدرسة والصف والشعبة قبل التصدير.");
+            if (!AccessPolicy.CanManageStudents(_actor, school.Id))
+                throw new UnauthorizedAccessException("لا تملك صلاحية تصدير السجلات الفردية.");
+            var dialog = new SaveFileDialog
+            {
+                Filter = "CSV UTF-8 (*.csv)|*.csv", FileName = "school-class-students.csv",
+                Title = "تصدير كشف الطلاب"
+            };
+            if (dialog.ShowDialog() != true) return;
+            var students = _store.GetStudents(_actor, school.Id, grade.Id);
+            var columns = new List<string> { "رمز الطالب", "اسم الطالب", "الصف", "الشعبة",
+                "ولي الأمر", "هاتف ولي الأمر", "حالة التسجيل" };
+            if (school.Gender == "مختلطة") columns.Add("الجنس");
+            var output = new List<string> { string.Join(",", columns.Select(CsvCell)) };
+            foreach (var student in students)
+            {
+                var cells = new List<string> { student.StudentCode, student.FullName,
+                    student.Grade.ToString(CultureInfo.InvariantCulture), student.Section,
+                    student.GuardianName, student.GuardianPhone,
+                    student.IsActive ? "مسجل" : "غير نشط" };
+                if (school.Gender == "مختلطة") cells.Add(student.Gender);
+                output.Add(string.Join(",", cells.Select(CsvCell)));
+            }
+            File.WriteAllLines(dialog.FileName, output, new System.Text.UTF8Encoding(true));
+            Info("تم تصدير كشف الصف المحدد بصيغة CSV UTF-8.");
+        }), false, "secondary");
+        root.Children.Add(exportRoster);
         var editor = Stack();
         editor.Children.Add(Label("إضافة طالب إلى الصف والشعبة المختارين", 17, true));
         var studentCode = Field(width: 170);
@@ -105,11 +136,8 @@ public partial class MainWindow
         var active = new CheckBox { Content = "الطالب مسجل", IsChecked = true,
             Margin = new Thickness(12, 8, 12, 10) };
         editor.Children.Add(active);
-        SchoolStudent? editing = null;
-
         void ResetEditor()
         {
-            editing = null;
             roster.SelectedItem = null;
             studentCode.Text = ""; fullName.Text = "";
             guardianName.Text = ""; guardianPhone.Text = ""; notes.Text = "";
@@ -133,6 +161,7 @@ public partial class MainWindow
             selectedCount.Text = $"عدد الطلاب في الكشف: {students.Count}";
             editor.IsEnabled = AccessPolicy.CanManageStudents(_actor, selectedSchool.Id) &&
                 selectedGrade is not null;
+            exportRoster.IsEnabled = editor.IsEnabled;
         }
 
         var newGrade = Choice(Enumerable.Range(1, 12).Select(x => x.ToString(CultureInfo.InvariantCulture)), 100);
@@ -194,7 +223,7 @@ public partial class MainWindow
             if (schoolPicker.SelectedItem is not School school ||
                 gradePicker.SelectedItem is not SchoolGrade grade)
                 throw new InvalidOperationException("اختر المدرسة والصف والشعبة أولا.");
-            _store.SaveStudent(_actor, new SchoolStudent(editing?.Id ?? "", school.Id,
+            _store.SaveStudent(_actor, new SchoolStudent("", school.Id,
                 studentCode.Text, fullName.Text, grade.Grade, grade.Section,
                 school.Gender == "مختلطة" ? gender.SelectedItem?.ToString() ?? "" : "",
                 guardianName.Text, guardianPhone.Text, notes.Text, active.IsChecked == true,
