@@ -23,7 +23,12 @@ public static class Statuses
 
 public sealed record UserAccount(string Id, string Username, string Role, string? SchoolId,
     bool IsActive, long PermissionMask = 0, bool IsOwner = false, long AuthVersion = 0);
-public sealed record School(string Id, string Code, string Name, string Zone, string Ownership, string Stage, bool IsActive);
+public sealed record School(string Id, string Code, string Name, string Zone, string Ownership, string Stage,
+    bool IsActive, string Gender = "مختلطة");
+
+/// <summary>Teacher, administration employee, or school social worker.</summary>
+public sealed record SchoolStaff(string Id, string SchoolId, string EmployeeCode, string FullName,
+    string Category, string JobTitle, string Specialization, string Qualification, string Gender, bool IsActive);
 public sealed record EnrollmentLine(string Grade, int Boys, int Girls)
 {
     public int Total => checked(Boys + Girls);
