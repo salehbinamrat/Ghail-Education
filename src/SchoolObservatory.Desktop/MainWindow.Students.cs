@@ -100,7 +100,9 @@ public partial class MainWindow
             roster.SelectedItem = null;
             studentCode.Text = ""; fullName.Text = "";
             guardianName.Text = ""; guardianPhone.Text = ""; notes.Text = "";
-            active.IsChecked = true; gender.SelectedIndex = 0;
+            active.IsChecked = true;
+            gender.SelectedIndex = schoolPicker.SelectedItem is School selectedSchool &&
+                selectedSchool.Gender == "مختلطة" ? -1 : 0;
         }
 
         void RefreshRoster()
