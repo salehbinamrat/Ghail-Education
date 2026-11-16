@@ -251,7 +251,7 @@ public partial class MainWindow : Window
             form.Children.Add(buttons);
             root.Children.Add(Box(form));
         }
-        else if (_actor.Role is Roles.Entry or Roles.Principal && data.Count == 1 &&
+        else if ((_actor.Role is Roles.Entry or Roles.Principal) && data.Count == 1 &&
                  AccessPolicy.CanEditSchoolProfile(_actor, data[0].Id))
         {
             var school = data[0];
@@ -275,6 +275,170 @@ public partial class MainWindow : Window
             root.Children.Add(Box(form));
         }
         Display("دليل المدارس", root);
+    }
+
+    private void ShowStaff()
+    {
+        if (!AccessPolicy.Has(_actor, PermissionFlags.ViewStaff))
+            throw new UnauthorizedAccessException("لا تملك صلاحية عرض كادر المدارس.");
+        var schools = _store.GetSchools(_actor).Where(s => s.IsActive).ToList();
+        var root = Stack();
+        root.Children.Add(Label("سجلات المعلمين والطاقم الإداري والأخصائيين الاجتماعيين", 18, true));
+        root.Children.Add(Label("كل حساب مدرسة يرى سجلات مدرسته فقط. أما مسؤولو المديرية فيرون المدارس وفقا لصلاحياتهم.", 13));
+        if (schools.Count == 0)
+        {
+            root.Children.Add(Label("لا توجد مدرسة نشطة متاحة لهذا الحساب."));
+            Display("كادر المدارس والسجلات", root);
+            return;
+        }
+
+        var schoolBox = new ComboBox
+        {
+            Width = 380, ItemsSource = schools, DisplayMemberPath = "Name",
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        root.Children.Add(Label("المدرسة", 14, true));
+        root.Children.Add(schoolBox);
+
+        var staffGrid = GridFor(Array.Empty<SchoolStaff>(),
+            ("الرقم الوظيفي", "EmployeeCode", false),
+            ("الاسم الكامل", "FullName", false),
+            ("الفئة", "Category", false),
+            ("المسمى", "JobTitle", false),
+            ("التخصص", "Specialization", false),
+            ("المؤهل", "Qualification", false),
+            ("الجنس", "Gender", false),
+            ("نشط", "IsActive", false));
+        staffGrid.MaxHeight = 370;
+        root.Children.Add(Box(staffGrid));
+
+        var editor = Stack();
+        editor.Children.Add(Label("إضافة موظف أو تعديل السجل المحدد", 16, true));
+        var employeeCode = Field(width: 155);
+        var fullName = Field(width: 270);
+        var job = Field(width: 190);
+        var specialization = Field(width: 190);
+        var qualification = Field(width: 190);
+        var category = new ComboBox
+        {
+            Width = 175, ItemsSource = new[] { "معلم", "إداري", "أخصائي اجتماعي" },
+            SelectedIndex = 0
+        };
+        var gender = new ComboBox
+        {
+            Width = 150, ItemsSource = new[] { "ذكور", "إناث", "غير محدد" },
+            SelectedIndex = 2
+        };
+        var active = new CheckBox { Content = "الموظف على رأس العمل",
+            IsChecked = true, Margin = new Thickness(6, 10, 6, 6) };
+
+        var fields = new WrapPanel();
+        foreach (var (title, control) in new (string, UIElement)[]
+        {
+            ("الرقم الوظيفي", employeeCode), ("الاسم الكامل", fullName),
+            ("الفئة", category), ("المسمى الوظيفي", job),
+            ("التخصص", specialization), ("المؤهل", qualification),
+            ("الجنس", gender)
+        })
+        {
+            var group = Stack();
+            group.Children.Add(Label(title, 13)); group.Children.Add(control);
+            group.Margin = new Thickness(3, 3, 3, 5);
+            fields.Children.Add(group);
+        }
+        editor.Children.Add(fields);
+        editor.Children.Add(active);
+        SchoolStaff? selected = null;
+
+        void Clear()
+        {
+            selected = null;
+            staffGrid.SelectedItem = null;
+            employeeCode.Text = ""; fullName.Text = ""; job.Text = "";
+            specialization.Text = ""; qualification.Text = "";
+            category.SelectedIndex = 0; gender.SelectedIndex = 2; active.IsChecked = true;
+        }
+
+        staffGrid.SelectionChanged += (_, _) =>
+        {
+            selected = staffGrid.SelectedItem as SchoolStaff;
+            if (selected is null) return;
+            employeeCode.Text = selected.EmployeeCode;
+            fullName.Text = selected.FullName;
+            category.SelectedItem = selected.Category;
+            job.Text = selected.JobTitle;
+            specialization.Text = selected.Specialization;
+            qualification.Text = selected.Qualification;
+            gender.SelectedItem = selected.Gender;
+            active.IsChecked = selected.IsActive;
+        };
+
+        void Refresh()
+        {
+            Clear();
+            if (schoolBox.SelectedItem is not School school) return;
+            staffGrid.ItemsSource = _store.GetSchoolStaff(_actor, school.Id);
+            editor.IsEnabled = AccessPolicy.CanEditStaff(_actor, school.Id);
+        }
+
+        schoolBox.SelectionChanged += (_, _) => Safe(Refresh);
+
+        var actions = new WrapPanel();
+        actions.Children.Add(Btn("سجل جديد", (_, _) => Clear()));
+        actions.Children.Add(Btn("حفظ الموظف", (_, _) => Safe(() =>
+        {
+            if (schoolBox.SelectedItem is not School school)
+                throw new InvalidOperationException("حدد المدرسة أولا.");
+            var staff = new SchoolStaff(selected?.Id ?? "", school.Id, employeeCode.Text,
+                fullName.Text, category.SelectedItem?.ToString() ?? "", job.Text,
+                specialization.Text, qualification.Text,
+                gender.SelectedItem?.ToString() ?? "غير محدد", active.IsChecked == true);
+            _store.SaveSchoolStaff(_actor, staff);
+            Info("تم حفظ سجل الموظف في المدرسة المحددة.");
+            Refresh();
+        })));
+        editor.Children.Add(actions);
+
+        var importPanel = Stack();
+        importPanel.Children.Add(Label("استيراد سجلات المدارس من Excel أو Word", 16, true));
+        importPanel.Children.Add(Label(
+            "يدعم الجداول المنظمة .xlsx و.docx. يجب أن يحتوي كل صف على رمز المدرسة والرقم الوظيفي والاسم والفئة؛ يتم التوجيه برمز المدرسة وليس بالتخمين من اسم الملف. السجلات الموجودة بالرقم نفسه سيتم تحديثها بعد التأكيد.", 13));
+        importPanel.Children.Add(Btn("اختيار ملف Excel أو Word واستيراد الكادر", async (_, _) =>
+        {
+            try
+            {
+                var file = new OpenFileDialog
+                {
+                    Filter = "Excel (*.xlsx)|*.xlsx|Word (*.docx)|*.docx",
+                    Title = "اختر جدول سجلات المعلمين والإداريين والأخصائيين"
+                };
+                if (file.ShowDialog() != true) return;
+                var rows = await Task.Run(() => SchoolStaffImportParser.Parse(file.FileName));
+                var groups = rows.GroupBy(x => x.SchoolCode.Trim(), StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.Key + ": " + g.Count().ToString(CultureInfo.InvariantCulture) + " سجل")
+                    .Take(10);
+                var message = "تم العثور على " + rows.Count + " سجلا ضمن المدارس التالية:" +
+                    Environment.NewLine + string.Join(Environment.NewLine, groups) +
+                    Environment.NewLine + Environment.NewLine +
+                    "سيتم إضافة السجلات الجديدة وتحديث البيانات المناظرة بالرقم الوظيفي. " +
+                    "أي رمز مدرسة غير صحيح سيوقف العملية كاملة. هل تعتمد الاستيراد؟";
+                if (MessageBox.Show(message, "مراجعة قبل الاستيراد",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                var imported = await Task.Run(() => _store.ImportStaffRecords(
+                    _actor, rows, Path.GetFileName(file.FileName)));
+                Info("تم تسجيل " + imported + " صفا في المدارس المطابقة دون استيراد جزئي.");
+                Refresh();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "تعذر استيراد سجلات المدرسة",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }));
+        root.Children.Add(Box(importPanel));
+        root.Children.Add(Box(editor));
+        Display("كادر المدارس والسجلات", root);
+        schoolBox.SelectedIndex = 0;
     }
 
     private sealed class EnrollmentInput
