@@ -52,8 +52,8 @@ public sealed class FirstRunLoginTests
         XNamespace wpf = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
         XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
         var buttons = doc.Descendants(wpf + "Button").ToArray();
-        var create = Assert.Single(buttons.Where(b => (string?)b.Attribute(x + "Name") == "CreateAdministratorButton"));
-        var login = Assert.Single(buttons.Where(b => (string?)b.Attribute(x + "Name") == "ExistingLoginButton"));
+        var create = Assert.Single(buttons, b => (string?)b.Attribute(x + "Name") == "CreateAdministratorButton");
+        var login = Assert.Single(buttons, b => (string?)b.Attribute(x + "Name") == "ExistingLoginButton");
         Assert.Empty(create.Ancestors(wpf + "ScrollViewer"));
         Assert.Empty(login.Ancestors(wpf + "ScrollViewer"));
         Assert.Contains(doc.Descendants(wpf + "ScrollViewer"), v =>
