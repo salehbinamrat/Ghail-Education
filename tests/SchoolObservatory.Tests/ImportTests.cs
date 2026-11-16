@@ -33,7 +33,7 @@ public sealed class ImportTests
     [Fact]
     public void ValidUtf8SchoolNamesAndBomRemainSupported()
     {
-        var csv = "code,name,zone,ownership,stage\\n1,مدرسة العليب,العليب,حكومية,أساسي\\n";
+        var csv = "code,name,zone,ownership,stage\n1,مدرسة العليب,العليب,حكومية,أساسي\n";
         var bytes = new byte[] { 0xEF, 0xBB, 0xBF }
             .Concat(System.Text.Encoding.UTF8.GetBytes(csv)).ToArray();
         Assert.Equal("مدرسة العليب", Assert.Single(SchoolCsvParser.ParseUtf8(bytes)).Name);
