@@ -117,6 +117,7 @@ public sealed partial class SqliteStore
             """);
         cmd.ExecuteNonQuery();
         MigrateUserPermissions(con);
+        MigrateSchoolRecords(con);
     }
 
     public bool HasUsers()
@@ -286,11 +287,11 @@ public sealed partial class SqliteStore
         if (!AccessPolicy.Has(actor, PermissionFlags.ViewSchools)) throw new UnauthorizedAccessException();
         using var con = Open();
         using var cmd = Cmd(con, null,
-            "SELECT id,code,name,zone,ownership,stage,is_active FROM schools WHERE $scope IS NULL OR id=$scope ORDER BY zone,name",
+            "SELECT id,code,name,zone,ownership,CASE WHEN stage='أساسي وثانوي' THEN 'مجمع تربوي' ELSE stage END,is_active,gender FROM schools WHERE $scope IS NULL OR id=$scope ORDER BY zone,name",
             ("$scope", actor.Role is Roles.Entry or Roles.Principal ? actor.SchoolId ?? "" : null));
         using var r = cmd.ExecuteReader();
         var list = new List<School>();
-        while (r.Read()) list.Add(new School(Text(r, 0), Text(r, 1), Text(r, 2), Text(r, 3), Text(r, 4), Text(r, 5), r.GetInt32(6) == 1));
+        while (r.Read()) list.Add(new School(Text(r, 0), Text(r, 1), Text(r, 2), Text(r, 3), Text(r, 4), Text(r, 5), r.GetInt32(6) == 1, Text(r, 7)));
         return list;
     }
 
@@ -301,22 +302,23 @@ public sealed partial class SqliteStore
             string.IsNullOrWhiteSpace(zone) || zone.Length > 100 ||
             string.IsNullOrWhiteSpace(stage) || stage.Length > 100 ||
             ownership is not ("حكومية" or "أهلية") ||
-            stage is not ("أساسي" or "ثانوي" or "أساسي وثانوي"))
+            stage is not ("أساسي" or "ثانوي" or "أساسي وثانوي" or "مجمع تربوي"))
             throw new ArgumentException("بيانات المدرسة ناقصة أو غير صحيحة.");
     }
 
-    public void AddSchool(UserAccount actor, string code, string name, string zone, string ownership, string stage)
+    public void AddSchool(UserAccount actor, string code, string name, string zone, string ownership, string stage, string gender = "مختلطة")
     {
         RequireFreshActor(actor);
         if (!AccessPolicy.CanEditSchool(actor)) throw new UnauthorizedAccessException();
         CheckSchoolInput(code, name, zone, ownership, stage);
+        CheckGender(gender);
         using var con = Open();
         using var tx = con.BeginTransaction();
         var id = Id();
         using (var cmd = Cmd(con, tx,
-            "INSERT INTO schools(id,code,name,zone,ownership,stage,created_utc) VALUES($id,$c,$n,$z,$o,$s,$at)",
+            "INSERT INTO schools(id,code,name,zone,ownership,stage,gender,created_utc) VALUES($id,$c,$n,$z,$o,$s,$g,$at)",
             ("$id", id), ("$c", code.Trim()), ("$n", name.Trim()), ("$z", zone.Trim()),
-            ("$o", ownership), ("$s", stage.Trim()), ("$at", Utc()))) cmd.ExecuteNonQuery();
+            ("$o", ownership), ("$s", DatabaseStage(stage)), ("$g", gender), ("$at", Utc()))) cmd.ExecuteNonQuery();
         Audit(con, tx, actor.Id, "school.create", id, $"code={code.Trim()};name={name.Trim()}");
         tx.Commit();
     }
@@ -361,13 +363,14 @@ public sealed partial class SqliteStore
         RequireFreshActor(actor);
         if (!AccessPolicy.CanEditSchool(actor)) throw new UnauthorizedAccessException();
         CheckSchoolInput(school.Code, school.Name, school.Zone, school.Ownership, school.Stage);
+        CheckGender(school.Gender);
         using var con = Open();
         using var tx = con.BeginTransaction();
         using (var cmd = Cmd(con, tx,
-            "UPDATE schools SET code=$c,name=$n,zone=$z,ownership=$o,stage=$s,is_active=$a WHERE id=$id",
+            "UPDATE schools SET code=$c,name=$n,zone=$z,ownership=$o,stage=$s,gender=$g,is_active=$a WHERE id=$id",
             ("$id", school.Id), ("$c", school.Code.Trim()), ("$n", school.Name.Trim()),
-            ("$z", school.Zone.Trim()), ("$o", school.Ownership), ("$s", school.Stage.Trim()),
-            ("$a", school.IsActive ? 1 : 0)))
+            ("$z", school.Zone.Trim()), ("$o", school.Ownership), ("$s", DatabaseStage(school.Stage)),
+            ("$g", school.Gender), ("$a", school.IsActive ? 1 : 0)))
         {
             if (cmd.ExecuteNonQuery() != 1) throw new InvalidOperationException("المدرسة غير موجودة.");
         }
