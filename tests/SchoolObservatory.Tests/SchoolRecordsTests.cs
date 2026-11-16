@@ -90,10 +90,10 @@ public sealed class SchoolRecordsTests
     public void SchoolCsvImportSupportsOptionalGenderAndLegacyColumns()
     {
         var withGender = SchoolCsvParser.Parse(
-            "code,name,zone,ownership,stage,gender\\nS1,الأولى,العليب,حكومية,مجمع تربوي,إناث\\n");
+            "code,name,zone,ownership,stage,gender\nS1,الأولى,العليب,حكومية,مجمع تربوي,إناث\n");
         Assert.Equal("إناث", Assert.Single(withGender).Gender);
         var old = SchoolCsvParser.Parse(
-            "code,name,zone,ownership,stage\\nS2,الثانية,العليب,حكومية,أساسي\\n");
+            "code,name,zone,ownership,stage\nS2,الثانية,العليب,حكومية,أساسي\n");
         Assert.Equal("مختلطة", Assert.Single(old).Gender);
     }
 
