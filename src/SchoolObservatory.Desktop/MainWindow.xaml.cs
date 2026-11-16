@@ -451,7 +451,8 @@ public partial class MainWindow : Window
         var username = Field(width: 280);
         var password = new PasswordBox { Width = 280, HorizontalAlignment = HorizontalAlignment.Left };
         var confirm = new PasswordBox { Width = 280, HorizontalAlignment = HorizontalAlignment.Left };
-        var roleItems = Roles.All.OrderBy(x => RoleName(x)).Select(x => new RoleOption(x, RoleName(x))).ToArray();
+        var roleItems = Roles.All.Where(x => _actor.IsOwner || x != Roles.Admin)
+            .OrderBy(x => RoleName(x)).Select(x => new RoleOption(x, RoleName(x))).ToArray();
         var role = new ComboBox { Width = 260, ItemsSource = roleItems,
             DisplayMemberPath = "Label", SelectedValuePath = "Code",
             HorizontalAlignment = HorizontalAlignment.Left };
@@ -517,6 +518,14 @@ public partial class MainWindow : Window
             school.IsEnabled = currentRole is Roles.Principal or Roles.Entry;
             if (!school.IsEnabled) school.SelectedIndex = -1;
             SetPermissions((long)PermissionCatalog.DefaultForRole(currentRole));
+            var allowed = PermissionCatalog.AllowedForRole(currentRole);
+            foreach (var check in checks)
+            {
+                var flag = (PermissionFlags)check.Tag;
+                check.IsEnabled = (allowed & flag) != 0 &&
+                    (_actor.IsOwner || (_actor.PermissionMask & (long)flag) != 0);
+                if (!check.IsEnabled) check.IsChecked = false;
+            }
         }
 
         role.SelectionChanged += (_, _) => SetRoleDefaults();
@@ -533,10 +542,12 @@ public partial class MainWindow : Window
             school.SelectedItem = _store.GetSchools(_actor).FirstOrDefault(x => x.Id == selected.SchoolId);
             school.IsEnabled = false;
             SetPermissions(selected.PermissionMask);
+            var canManage = AccessPolicy.CanManageAccount(_actor, selected);
+            foreach (var check in checks) check.IsEnabled &= canManage;
             password.Clear();
             confirm.Clear();
-            state.Text = selected.IsOwner
-                ? "الحساب المؤسس محمي. لإضافة حساب جديد استخدم زر حساب جديد."
+            state.Text = !canManage
+                ? "هذا الحساب محمي أو أعلى من صلاحياتك، ولا يمكنك إدارته."
                 : $"تعديل الحساب: {selected.Username} — التغييرات في الصلاحيات تتطلب تسجيل دخوله مجددا.";
         };
 
