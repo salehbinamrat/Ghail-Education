@@ -71,7 +71,16 @@ public static class SchoolStaffImportParser
                         .Select(p => string.Concat(p.Descendants(word + "t").Select(t => t.Value)))
                         .Where(x => x.Length > 0)).Trim()).ToArray())
                 .ToArray();
-            if (rows.Length >= 2 && MatchesHeaders(rows[0])) return rows;
+            if (rows.Length >= 2 && MatchesHeaders(rows[0]))
+            {
+                // Word cells with spans or nested tables shift the column-to-field mapping.
+                // Reject them instead of storing an employee under the wrong school.
+                if (table.Descendants(word + "gridSpan").Any() ||
+                    table.Descendants(word + "vMerge").Any() ||
+                    table.Descendants(word + "tbl").Any())
+                    throw new ArgumentException("جدول Word يحتوي خلايا مدمجة أو جداول داخلية؛ افصل الخلايا قبل استيراد بيانات المدارس.");
+                return rows;
+            }
         }
         throw new ArgumentException("لم يعثر على جدول Word يحتوي عناوين رمز المدرسة والرقم الوظيفي والاسم والفئة.");
     }
@@ -93,6 +102,11 @@ public static class SchoolStaffImportParser
             var sequential = 0;
             foreach (var cell in row.Elements(ns + "c"))
             {
+                // Excel caches formula results; these can be stale and may silently
+                // remap a school or personnel number. Only import literal values.
+                if (cell.Element(ns + "f") is not null ||
+                    (string?)cell.Attribute("t") == "e")
+                    throw new ArgumentException("يحتوي ملف Excel خلايا بصيغ حسابية أو أخطاء؛ حوّل الجدول إلى قيم ثابتة قبل الاستيراد.");
                 var col = ExcelColumn((string?)cell.Attribute("r"), sequential);
                 sequential = col + 1;
                 if (col >= 30) throw new ArgumentException("عدد أعمدة السجلات في Excel كبير جدا.");
