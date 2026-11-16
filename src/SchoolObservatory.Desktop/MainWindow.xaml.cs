@@ -31,6 +31,8 @@ public partial class MainWindow : Window
         YearText.Text = $"العام الدراسي: {store.AcademicYear}";
         AddNav("لوحة التحكم", ShowDashboard);
         AddNav("دليل المدارس", ShowSchools);
+        if (AccessPolicy.Has(actor, PermissionFlags.ViewStaff))
+            AddNav("كادر المدارس والسجلات", ShowStaff);
         if (AccessPolicy.Has(actor, PermissionFlags.EditCensus) || AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("إحصاء الطلاب والمعلمين", ShowCensus);
         if (AccessPolicy.Has(actor, PermissionFlags.ApproveSchool) || AccessPolicy.Has(actor, PermissionFlags.ApproveDistrict) || AccessPolicy.Has(actor, PermissionFlags.ReviewCensus)) AddNav("مراجعة واعتماد الإحصاء", ShowReviews);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("التقارير والتصدير", ShowReports);
@@ -174,7 +176,8 @@ public partial class MainWindow : Window
         root.Children.Add(Label($"عدد المدارس الظاهرة: {data.Count} — حسب الصلاحيات المحددة لحسابك", 15));
         var grid = GridFor(data,
             ("الرمز", "Code", false), ("المدرسة", "Name", false), ("المنطقة", "Zone", false),
-            ("الملكية", "Ownership", false), ("المرحلة", "Stage", false), ("نشطة", "IsActive", false));
+            ("الملكية", "Ownership", false), ("النوع", "Gender", false),
+            ("المرحلة", "Stage", false), ("نشطة", "IsActive", false));
         root.Children.Add(Box(grid));
         if (AccessPolicy.CanEditSchool(_actor))
         {
@@ -182,12 +185,13 @@ public partial class MainWindow : Window
             form.Children.Add(Label("إضافة مدرسة أو تعديل المدرسة المحددة", 17, true));
             var code = Field(width: 150); var name = Field(width: 300); var zone = Field(width: 210);
             var ownership = new ComboBox { Width = 160, ItemsSource = new[] { "حكومية", "أهلية" }, SelectedIndex = 0 };
-            var stage = new ComboBox { Width = 160, ItemsSource = new[] { "أساسي", "ثانوي", "أساسي وثانوي" }, SelectedIndex = 0 };
+            var stage = new ComboBox { Width = 160, ItemsSource = new[] { "أساسي", "ثانوي", "مجمع تربوي" }, SelectedIndex = 0 };
+            var gender = new ComboBox { Width = 160, ItemsSource = new[] { "ذكور", "إناث", "مختلطة" }, SelectedIndex = 2 };
             var active = new CheckBox { Content = "المدرسة نشطة", IsChecked = true, Margin = new Thickness(8), VerticalAlignment = VerticalAlignment.Center };
             var fields = new WrapPanel();
             foreach (var (title, control) in new (string, UIElement)[] {
                 ("رمز المدرسة",code),("اسم المدرسة",name),("المنطقة",zone),
-                ("الملكية",ownership),("المرحلة",stage) })
+                ("الملكية",ownership),("نوع المدرسة",gender),("المرحلة",stage) })
             {
                 var group = Stack(); group.Children.Add(Label(title, 13)); group.Children.Add(control); fields.Children.Add(group);
             }
@@ -200,12 +204,13 @@ public partial class MainWindow : Window
                 if (selected is null) return;
                 code.Text = selected.Code; name.Text = selected.Name; zone.Text = selected.Zone;
                 ownership.SelectedItem = selected.Ownership; stage.SelectedItem = selected.Stage;
+                gender.SelectedItem = selected.Gender;
                 active.IsChecked = selected.IsActive;
             };
             var buttons = new WrapPanel();
             buttons.Children.Add(Btn("إضافة مدرسة جديدة", (_, _) => Safe(() =>
             {
-                _store.AddSchool(_actor, code.Text, name.Text, zone.Text, ownership.SelectedItem?.ToString() ?? "", stage.SelectedItem?.ToString() ?? "");
+                _store.AddSchool(_actor, code.Text, name.Text, zone.Text, ownership.SelectedItem?.ToString() ?? "", stage.SelectedItem?.ToString() ?? "", gender.SelectedItem?.ToString() ?? "مختلطة");
                 Info("تمت إضافة المدرسة."); ShowSchools();
             })));
             buttons.Children.Add(Btn("حفظ تعديل المدرسة المحددة", (_, _) => Safe(() =>
@@ -215,7 +220,8 @@ public partial class MainWindow : Window
                 {
                     Code = code.Text, Name = name.Text, Zone = zone.Text,
                     Ownership = ownership.SelectedItem?.ToString() ?? "",
-                    Stage = stage.SelectedItem?.ToString() ?? "", IsActive = active.IsChecked == true
+                    Stage = stage.SelectedItem?.ToString() ?? "", Gender = gender.SelectedItem?.ToString() ?? "مختلطة",
+                    IsActive = active.IsChecked == true
                 });
                 Info("تم حفظ بيانات المدرسة."); ShowSchools();
             })));
@@ -240,9 +246,32 @@ public partial class MainWindow : Window
             {
                 selected = null; grid.SelectedItem = null; code.Text = ""; name.Text = "";
                 zone.Text = ""; active.IsChecked = true;
-                ownership.SelectedIndex = 0; stage.SelectedIndex = 0;
+                ownership.SelectedIndex = 0; stage.SelectedIndex = 0; gender.SelectedIndex = 2;
             }));
             form.Children.Add(buttons);
+            root.Children.Add(Box(form));
+        }
+        else if (_actor.Role is Roles.Entry or Roles.Principal && data.Count == 1 &&
+                 AccessPolicy.CanEditSchoolProfile(_actor, data[0].Id))
+        {
+            var school = data[0];
+            var form = Stack();
+            form.Children.Add(Label("تعديل مرحلة ونوع مدرستك فقط", 16, true));
+            form.Children.Add(Label("لا يمكنك تغيير رمز المدرسة أو اسمها أو موقعها أو بيانات أي مدرسة أخرى.", 13));
+            var stage = new ComboBox { Width = 180,
+                ItemsSource = new[] { "أساسي", "ثانوي", "مجمع تربوي" },
+                SelectedItem = school.Stage, HorizontalAlignment = HorizontalAlignment.Left };
+            var gender = new ComboBox { Width = 180,
+                ItemsSource = new[] { "ذكور", "إناث", "مختلطة" },
+                SelectedItem = school.Gender, HorizontalAlignment = HorizontalAlignment.Left };
+            form.Children.Add(Label("المرحلة", 13)); form.Children.Add(stage);
+            form.Children.Add(Label("نوع المدرسة", 13)); form.Children.Add(gender);
+            form.Children.Add(Btn("حفظ بيانات مدرستي", (_, _) => Safe(() =>
+            {
+                _store.UpdateOwnSchoolProfile(_actor, school.Id,
+                    stage.SelectedItem?.ToString() ?? "", gender.SelectedItem?.ToString() ?? "");
+                Info("تم تحديث نوع المدرسة والمرحلة."); ShowSchools();
+            })));
             root.Children.Add(Box(form));
         }
         Display("دليل المدارس", root);
