@@ -16,7 +16,10 @@ public enum PermissionFlags : long
     ApproveSchool = 1L << 5,
     ViewReports = 1L << 6,
     ViewAudit = 1L << 7,
-    ManageUsers = 1L << 8
+    ManageUsers = 1L << 8,
+    ViewStaff = 1L << 9,
+    ManageStaff = 1L << 10,
+    ManageSchoolProfile = 1L << 11
 }
 
 public sealed record PermissionChoice(PermissionFlags Flag, string Name);
@@ -28,7 +31,8 @@ public static class PermissionCatalog
         PermissionFlags.EditCensus | PermissionFlags.ReviewCensus |
         PermissionFlags.ApproveDistrict | PermissionFlags.ApproveSchool |
         PermissionFlags.ViewReports | PermissionFlags.ViewAudit |
-        PermissionFlags.ManageUsers;
+        PermissionFlags.ManageUsers | PermissionFlags.ViewStaff |
+        PermissionFlags.ManageStaff | PermissionFlags.ManageSchoolProfile;
 
     public static readonly IReadOnlyList<PermissionChoice> Choices =
     [
@@ -40,7 +44,10 @@ public static class PermissionCatalog
         new(PermissionFlags.ApproveSchool, "إقرار إحصاء المدرسة"),
         new(PermissionFlags.ViewReports, "عرض التقارير والتصدير"),
         new(PermissionFlags.ViewAudit, "قراءة سجل العمليات"),
-        new(PermissionFlags.ManageUsers, "إدارة المستخدمين غير المؤسسين")
+        new(PermissionFlags.ManageUsers, "إدارة المستخدمين غير المؤسسين"),
+        new(PermissionFlags.ViewStaff, "عرض المعلمين والطاقم الإداري والأخصائيين"),
+        new(PermissionFlags.ManageStaff, "إضافة وتعديل واستيراد كادر المدرسة"),
+        new(PermissionFlags.ManageSchoolProfile, "تعديل نوع ومرحلة المدرسة المخصصة")
     ];
 
     public static PermissionFlags DefaultForRole(string role) => role switch
@@ -48,13 +55,16 @@ public static class PermissionCatalog
         Roles.Admin => All & ~PermissionFlags.ApproveSchool & ~PermissionFlags.ManageUsers,
         Roles.Statistician => PermissionFlags.ViewSchools | PermissionFlags.ManageSchools |
             PermissionFlags.EditCensus | PermissionFlags.ReviewCensus |
-            PermissionFlags.ApproveDistrict | PermissionFlags.ViewReports | PermissionFlags.ViewAudit,
+            PermissionFlags.ApproveDistrict | PermissionFlags.ViewReports | PermissionFlags.ViewAudit |
+            PermissionFlags.ViewStaff | PermissionFlags.ManageStaff | PermissionFlags.ManageSchoolProfile,
         Roles.Reviewer => PermissionFlags.ViewSchools | PermissionFlags.ReviewCensus |
-            PermissionFlags.ViewReports | PermissionFlags.ViewAudit,
+            PermissionFlags.ViewReports | PermissionFlags.ViewAudit | PermissionFlags.ViewStaff,
         Roles.Principal => PermissionFlags.ViewSchools | PermissionFlags.EditCensus |
-            PermissionFlags.ApproveSchool | PermissionFlags.ViewReports,
-        Roles.Entry => PermissionFlags.ViewSchools | PermissionFlags.EditCensus,
-        Roles.Viewer => PermissionFlags.ViewSchools | PermissionFlags.ViewReports,
+            PermissionFlags.ApproveSchool | PermissionFlags.ViewReports |
+            PermissionFlags.ViewStaff | PermissionFlags.ManageStaff | PermissionFlags.ManageSchoolProfile,
+        Roles.Entry => PermissionFlags.ViewSchools | PermissionFlags.EditCensus |
+            PermissionFlags.ViewStaff | PermissionFlags.ManageStaff | PermissionFlags.ManageSchoolProfile,
+        Roles.Viewer => PermissionFlags.ViewSchools | PermissionFlags.ViewReports | PermissionFlags.ViewStaff,
         _ => throw new ArgumentException("دور المستخدم غير معتمد.", nameof(role))
     };
 
@@ -67,14 +77,16 @@ public static class PermissionCatalog
         Roles.Admin => All & ~PermissionFlags.ApproveSchool,
         Roles.Statistician => PermissionFlags.ViewSchools | PermissionFlags.ManageSchools |
             PermissionFlags.EditCensus | PermissionFlags.ReviewCensus |
-            PermissionFlags.ApproveDistrict | PermissionFlags.ViewReports | PermissionFlags.ViewAudit,
+            PermissionFlags.ApproveDistrict | PermissionFlags.ViewReports | PermissionFlags.ViewAudit |
+            PermissionFlags.ViewStaff | PermissionFlags.ManageStaff | PermissionFlags.ManageSchoolProfile,
         Roles.Reviewer => PermissionFlags.ViewSchools | PermissionFlags.ReviewCensus |
-            PermissionFlags.ViewReports | PermissionFlags.ViewAudit,
+            PermissionFlags.ViewReports | PermissionFlags.ViewAudit | PermissionFlags.ViewStaff,
         Roles.Principal => PermissionFlags.ViewSchools | PermissionFlags.EditCensus |
-            PermissionFlags.ApproveSchool | PermissionFlags.ViewReports,
+            PermissionFlags.ApproveSchool | PermissionFlags.ViewReports |
+            PermissionFlags.ViewStaff | PermissionFlags.ManageStaff | PermissionFlags.ManageSchoolProfile,
         Roles.Entry => PermissionFlags.ViewSchools | PermissionFlags.EditCensus |
-            PermissionFlags.ViewReports,
-        Roles.Viewer => PermissionFlags.ViewSchools | PermissionFlags.ViewReports,
+            PermissionFlags.ViewReports | PermissionFlags.ViewStaff | PermissionFlags.ManageStaff | PermissionFlags.ManageSchoolProfile,
+        Roles.Viewer => PermissionFlags.ViewSchools | PermissionFlags.ViewReports | PermissionFlags.ViewStaff,
         _ => PermissionFlags.None
     };
 
