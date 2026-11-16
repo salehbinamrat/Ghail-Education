@@ -59,7 +59,7 @@ public partial class MainWindow : Window
             BorderThickness = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Right,
             Padding = new Thickness(14, 11, 14, 11), Margin = new Thickness(2, 3, 2, 3)
         };
-        button.Click += (_, _) => action();
+        button.Click += (_, _) => Safe(action);
         NavPanel.Children.Add(button);
     }
 
@@ -286,7 +286,7 @@ public partial class MainWindow : Window
             MinHeight = 65, MaxHeight = 125, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         form.Children.Add(notes);
         var actions = new WrapPanel();
-        var editable = _actor.Role is Roles.Admin or Roles.Statistician or Roles.Principal or Roles.Entry;
+        var editable = AccessPolicy.Has(_actor, PermissionFlags.EditCensus);
         actions.Children.Add(Btn("حفظ المسودة", (_, _) => Safe(() =>
         {
             if (combo.SelectedItem is not School selected) return;
@@ -378,9 +378,12 @@ public partial class MainWindow : Window
             });
         }
         var buttons = new WrapPanel();
-        buttons.Children.Add(Btn("إقرار مدير المدرسة", (_, _) => Change("school_approve")));
-        buttons.Children.Add(Btn("اعتماد المديرية النهائي", (_, _) => Change("district_approve")));
-        buttons.Children.Add(Btn("إرجاع للتصحيح", (_, _) => Change("return")));
+        buttons.Children.Add(Btn("إقرار مدير المدرسة", (_, _) => Change("school_approve"),
+            AccessPolicy.Has(_actor, PermissionFlags.ApproveSchool)));
+        buttons.Children.Add(Btn("اعتماد المديرية النهائي", (_, _) => Change("district_approve"),
+            AccessPolicy.Has(_actor, PermissionFlags.ApproveDistrict)));
+        buttons.Children.Add(Btn("إرجاع للتصحيح", (_, _) => Change("return"),
+            AccessPolicy.Has(_actor, PermissionFlags.ReviewCensus)));
         actions.Children.Add(buttons);
         root.Children.Add(Box(actions));
         Display("المراجعة والاعتماد", root);
