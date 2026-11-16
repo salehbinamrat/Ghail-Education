@@ -183,7 +183,7 @@ public sealed partial class SqliteStore
         {
             var code = item.SchoolCode.Trim();
             // Never tell a school-scoped user whether a foreign school really exists.
-            if (actor.Role is Roles.Entry or Roles.Principal &&
+            if ((actor.Role is Roles.Entry or Roles.Principal) &&
                 !schools.ContainsKey(code))
                 throw new UnauthorizedAccessException("الملف يحتوي سجلات خارج نطاق مدرستك.");
             if (!schools.TryGetValue(code, out var school))
