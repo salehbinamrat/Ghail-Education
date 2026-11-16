@@ -747,13 +747,13 @@ public partial class MainWindow : Window
         {
             if (selected is not null) { Info("اختر «حساب جديد» أولا لتطبيق هذا النموذج."); return; }
             role.SelectedValue = Roles.Entry;
-            SetPermissions((long)(PermissionFlags.ViewSchools | PermissionFlags.ViewStaff));
+            SetPermissions((long)(PermissionFlags.ViewSchools | PermissionFlags.ViewStaff | PermissionFlags.ViewReports));
         }));
         presets.Children.Add(Btn("مستخدم مدرسة — مشاهدة وتعديل وإضافة", (_, _) =>
         {
             if (selected is not null) { Info("اختر «حساب جديد» أولا لتطبيق هذا النموذج."); return; }
             role.SelectedValue = Roles.Entry;
-            SetPermissions((long)(PermissionFlags.ViewSchools | PermissionFlags.EditCensus |
+            SetPermissions((long)(PermissionFlags.ViewSchools | PermissionFlags.ViewReports | PermissionFlags.EditCensus |
                 PermissionFlags.ViewStaff | PermissionFlags.ManageStaff | PermissionFlags.ManageSchoolProfile));
         }));
         form.Children.Add(presets);
