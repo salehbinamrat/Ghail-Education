@@ -62,19 +62,25 @@ public static class PermissionCatalog
         mask > 0 && (mask & ~(long)All) == 0 &&
         (mask & (long)PermissionFlags.ViewSchools) != 0;
 
+    public static PermissionFlags AllowedForRole(string role) => role switch
+    {
+        Roles.Admin => All & ~PermissionFlags.ApproveSchool,
+        Roles.Statistician => PermissionFlags.ViewSchools | PermissionFlags.ManageSchools |
+            PermissionFlags.EditCensus | PermissionFlags.ReviewCensus |
+            PermissionFlags.ApproveDistrict | PermissionFlags.ViewReports | PermissionFlags.ViewAudit,
+        Roles.Reviewer => PermissionFlags.ViewSchools | PermissionFlags.ReviewCensus |
+            PermissionFlags.ViewReports | PermissionFlags.ViewAudit,
+        Roles.Principal => PermissionFlags.ViewSchools | PermissionFlags.EditCensus |
+            PermissionFlags.ApproveSchool | PermissionFlags.ViewReports,
+        Roles.Entry => PermissionFlags.ViewSchools | PermissionFlags.EditCensus |
+            PermissionFlags.ViewReports,
+        Roles.Viewer => PermissionFlags.ViewSchools | PermissionFlags.ViewReports,
+        _ => PermissionFlags.None
+    };
+
     public static bool IsRoleAllowed(string role, long mask)
     {
         if (!Roles.All.Contains(role) || !IsValid(mask)) return false;
-        var flags = (PermissionFlags)mask;
-        return role switch
-        {
-            Roles.Principal => (flags & ~(PermissionFlags.ViewSchools | PermissionFlags.EditCensus |
-                PermissionFlags.ApproveSchool | PermissionFlags.ViewReports)) == 0,
-            Roles.Entry => (flags & ~(PermissionFlags.ViewSchools | PermissionFlags.EditCensus |
-                PermissionFlags.ViewReports)) == 0,
-            Roles.Admin or Roles.Statistician or Roles.Reviewer or Roles.Viewer =>
-                !flags.HasFlag(PermissionFlags.ApproveSchool),
-            _ => false
-        };
+        return (((PermissionFlags)mask & ~AllowedForRole(role)) == 0);
     }
 }
