@@ -16,6 +16,7 @@ public sealed partial class SqliteStore
         }
 
         var needsMask = !HasColumn(con, "permission_mask");
+        var needsAuthVersion = !HasColumn(con, "auth_version");
         var needsOwner = !HasColumn(con, "is_owner");
         if (needsMask)
         {
@@ -59,6 +60,12 @@ public sealed partial class SqliteStore
                 """, ("$all", (long)PermissionCatalog.All));
             migration.ExecuteNonQuery();
         }
+        if (needsAuthVersion)
+        {
+            using var alter = Cmd(con, null,
+                "ALTER TABLE users ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 0 CHECK(auth_version >= 0)");
+            alter.ExecuteNonQuery();
+        }
         using var index = Cmd(con, null, """
             CREATE UNIQUE INDEX IF NOT EXISTS ux_users_single_owner
             ON users(is_owner) WHERE is_owner=1;
@@ -71,20 +78,21 @@ public sealed partial class SqliteStore
         if (!actor.IsActive) throw new UnauthorizedAccessException("الجلسة غير نشطة.");
         using var con = Open();
         using var cmd = Cmd(con, null,
-            "SELECT role,school_id,is_active,permission_mask,is_owner FROM users WHERE id=$id",
+            "SELECT role,school_id,is_active,permission_mask,is_owner,auth_version FROM users WHERE id=$id",
             ("$id", actor.Id));
         using var reader = cmd.ExecuteReader();
         if (!reader.Read() || reader.GetInt32(2) != 1 ||
             Text(reader, 0) != actor.Role ||
             NullableText(reader, 1) != actor.SchoolId ||
             reader.GetInt64(3) != actor.PermissionMask ||
-            (reader.GetInt32(4) == 1) != actor.IsOwner)
+            (reader.GetInt32(4) == 1) != actor.IsOwner ||
+            reader.GetInt64(5) != actor.AuthVersion)
             throw new UnauthorizedAccessException("تغيرت صلاحيات الحساب أو حالته. أغلق الجلسة وسجل الدخول مجددا.");
     }
 
     private static UserAccount ReadAccount(SqliteDataReader r) =>
         new(Text(r, 0), Text(r, 1), Text(r, 2), NullableText(r, 3),
-            r.GetInt32(4) == 1, r.GetInt64(5), r.GetInt32(6) == 1);
+            r.GetInt32(4) == 1, r.GetInt64(5), r.GetInt32(6) == 1, r.GetInt64(7));
 
     /// <summary>Updates a user without allowing delegated managers to elevate privileges.</summary>
     public void UpdateUserPermissions(UserAccount actor, string targetId, long permissionMask)
@@ -95,7 +103,7 @@ public sealed partial class SqliteStore
         using var con = Open();
         using var tx = con.BeginTransaction();
         using var read = Cmd(con, tx,
-            "SELECT id,username,role,school_id,is_active,permission_mask,is_owner FROM users WHERE id=$id",
+            "SELECT id,username,role,school_id,is_active,permission_mask,is_owner,auth_version FROM users WHERE id=$id",
             ("$id", targetId));
         UserAccount target;
         using (var r = read.ExecuteReader())
@@ -110,7 +118,7 @@ public sealed partial class SqliteStore
         if (!actor.IsOwner && ((permissionMask & ~actor.PermissionMask) != 0 ||
                                ((PermissionFlags)permissionMask).HasFlag(PermissionFlags.ManageUsers)))
             throw new UnauthorizedAccessException("لا يمكن تفويض صلاحيات أكبر من صلاحياتك.");
-        using var update = Cmd(con, tx, "UPDATE users SET permission_mask=$p WHERE id=$id",
+        using var update = Cmd(con, tx, "UPDATE users SET permission_mask=$p, auth_version=auth_version+1 WHERE id=$id",
             ("$p", permissionMask), ("$id", targetId));
         update.ExecuteNonQuery();
         Audit(con, tx, actor.Id, "user.permissions", targetId, $"permissions={permissionMask}");
@@ -124,7 +132,7 @@ public sealed partial class SqliteStore
         using var con = Open();
         using var tx = con.BeginTransaction();
         using var read = Cmd(con, tx,
-            "SELECT id,username,role,school_id,is_active,permission_mask,is_owner FROM users WHERE id=$id",
+            "SELECT id,username,role,school_id,is_active,permission_mask,is_owner,auth_version FROM users WHERE id=$id",
             ("$id", targetId));
         UserAccount target;
         using (var r = read.ExecuteReader())
@@ -137,7 +145,7 @@ public sealed partial class SqliteStore
         if (!AccessPolicy.CanManageAccount(actor, target))
             throw new UnauthorizedAccessException("لا يمكنك إدارة هذا الحساب.");
         using var update = Cmd(con, tx,
-            "UPDATE users SET is_active=$active,failed_attempts=0,lock_until_utc=NULL WHERE id=$id",
+            "UPDATE users SET is_active=$active,failed_attempts=0,lock_until_utc=NULL,auth_version=auth_version+1 WHERE id=$id",
             ("$active", active ? 1 : 0), ("$id", targetId));
         update.ExecuteNonQuery();
         Audit(con, tx, actor.Id, active ? "user.activate" : "user.deactivate", targetId, "");
@@ -151,7 +159,7 @@ public sealed partial class SqliteStore
         using var con = Open();
         using var tx = con.BeginTransaction();
         using var read = Cmd(con, tx,
-            "SELECT id,username,role,school_id,is_active,permission_mask,is_owner FROM users WHERE id=$id",
+            "SELECT id,username,role,school_id,is_active,permission_mask,is_owner,auth_version FROM users WHERE id=$id",
             ("$id", targetId));
         UserAccount target;
         using (var r = read.ExecuteReader())
@@ -162,7 +170,7 @@ public sealed partial class SqliteStore
         if (!AccessPolicy.CanManageAccount(actor, target))
             throw new UnauthorizedAccessException("لا يمكنك إعادة تعيين كلمة مرور هذا الحساب.");
         using var update = Cmd(con, tx,
-            "UPDATE users SET password_hash=$hash,failed_attempts=0,lock_until_utc=NULL WHERE id=$id",
+            "UPDATE users SET password_hash=$hash,failed_attempts=0,lock_until_utc=NULL,auth_version=auth_version+1 WHERE id=$id",
             ("$hash", hashed), ("$id", targetId));
         update.ExecuteNonQuery();
         Audit(con, tx, actor.Id, "user.password_reset", targetId, "Password reset; no secret logged");
