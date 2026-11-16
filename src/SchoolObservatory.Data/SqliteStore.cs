@@ -190,13 +190,14 @@ public sealed partial class SqliteStore
         using var con = Open();
         using var tx = con.BeginTransaction();
         using var cmd = Cmd(con, tx,
-            "SELECT id,username,password_hash,role,school_id,is_active,failed_attempts,lock_until_utc,permission_mask,is_owner FROM users WHERE username=$n",
+            "SELECT id,username,password_hash,role,school_id,is_active,failed_attempts,lock_until_utc,permission_mask,is_owner,auth_version FROM users WHERE username=$n",
             ("$n", username.Trim()));
         string id, normalized, hash, role;
         string? school, lockDate;
         int active, fails;
         long permissions;
         bool isOwner;
+        long authVersion;
         using (var r = cmd.ExecuteReader())
         {
             if (!r.Read()) return null;
@@ -204,6 +205,7 @@ public sealed partial class SqliteStore
             school = NullableText(r, 4); active = r.GetInt32(5); fails = r.GetInt32(6);
             lockDate = NullableText(r, 7);
             permissions = r.GetInt64(8); isOwner = r.GetInt32(9) == 1;
+            authVersion = r.GetInt64(10);
         }
         if (active != 1) return null;
         if (DateTimeOffset.TryParse(lockDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var locked)
@@ -222,7 +224,7 @@ public sealed partial class SqliteStore
         using (var reset = Cmd(con, tx,
             "UPDATE users SET failed_attempts=0, lock_until_utc=NULL WHERE id=$id", ("$id", id))) reset.ExecuteNonQuery();
         tx.Commit();
-        return new UserAccount(id, normalized, role, school, true, permissions, isOwner);
+        return new UserAccount(id, normalized, role, school, true, permissions, isOwner, authVersion);
     }
 
     public IReadOnlyList<UserAccount> GetUsers(UserAccount actor)
@@ -230,7 +232,7 @@ public sealed partial class SqliteStore
         RequireFreshActor(actor);
         if (!AccessPolicy.CanCreateUsers(actor)) throw new UnauthorizedAccessException();
         using var con = Open();
-        using var cmd = Cmd(con, null, "SELECT id,username,role,school_id,is_active,permission_mask,is_owner FROM users ORDER BY is_owner DESC,username");
+        using var cmd = Cmd(con, null, "SELECT id,username,role,school_id,is_active,permission_mask,is_owner,auth_version FROM users ORDER BY is_owner DESC,username");
         using var r = cmd.ExecuteReader();
         var list = new List<UserAccount>();
         while (r.Read()) list.Add(ReadAccount(r));
