@@ -108,6 +108,45 @@ public sealed partial class SqliteStore
         return new StudentSchoolInfo(Text(reader, 0), Text(reader, 1), Text(reader, 2), true);
     }
 
+    private static void EnsureSchoolStructureCompatible(SqliteConnection con, SqliteTransaction tx,
+        string schoolId, string stage, string gender)
+    {
+        // A school cannot silently invalidate existing student genders or active class rosters.
+        if (gender != "مختلطة")
+        {
+            using var students = Cmd(con, tx, """
+                SELECT EXISTS(SELECT 1 FROM school_students
+                  WHERE school_id=$s AND gender<>$gender)
+                """, ("$s", schoolId), ("$gender", gender));
+            if (Convert.ToInt32(students.ExecuteScalar(), CultureInfo.InvariantCulture) == 1)
+                throw new InvalidOperationException(
+                    "تعذر تغيير نوع المدرسة؛ توجد ملفات طلاب لا تتوافق مع النوع الجديد.");
+        }
+        if (stage is "أساسي" or "ثانوي")
+        {
+            using var classes = Cmd(con, tx, """
+                SELECT EXISTS(SELECT 1 FROM school_grades
+                  WHERE school_id=$s AND (($stage='أساسي' AND grade>9)
+                    OR ($stage='ثانوي' AND grade<10)))
+                """, ("$s", schoolId), ("$stage", stage));
+            if (Convert.ToInt32(classes.ExecuteScalar(), CultureInfo.InvariantCulture) == 1)
+                throw new InvalidOperationException(
+                    "تعذر تغيير المرحلة؛ توجد صفوف دراسية مسجلة خارج نطاق المرحلة الجديدة.");
+        }
+    }
+
+    private static void RequireEnrolledYear(SqliteConnection con, SqliteTransaction tx,
+        string schoolId, string studentId, string year)
+    {
+        using var cmd = Cmd(con, tx, """
+            SELECT EXISTS(SELECT 1 FROM student_enrollments
+              WHERE school_id=$s AND student_id=$student AND academic_year=$year AND status='مسجل')
+            """, ("$s", schoolId), ("$student", studentId), ("$year", year));
+        if (Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture) != 1)
+            throw new InvalidOperationException(
+                "الطالب غير مسجل في العام الدراسي الحالي؛ لا يمكن إضافة نتيجة أو تقييم أو حضور جديد.");
+    }
+
     private static string SectionName(string section)
     {
         section = section.Trim();
@@ -363,10 +402,11 @@ public sealed partial class SqliteStore
             maximum is < 1 or > 1000 || score < 0 || score > maximum)
             throw new ArgumentException("اسم المادة أو الفصل أو الدرجة غير صحيح.");
         ValidateNarrative(notes);
+        var year = AcademicYear;
         using var con = Open();
         using var tx = con.BeginTransaction();
         StudentBelongs(con, tx, schoolId, studentId);
-        var year = AcademicYear;
+        RequireEnrolledYear(con, tx, schoolId, studentId, year);
         using var cmd = Cmd(con, tx, """
             INSERT INTO student_results(id,student_id,school_id,academic_year,term,
                 subject,score,maximum,notes,updated_utc)
@@ -414,15 +454,17 @@ public sealed partial class SqliteStore
             rating is not ("ممتاز" or "جيد جدا" or "جيد" or "مقبول" or "يحتاج متابعة"))
             throw new ArgumentException("حدد فئة التقييم والتقدير من القيم المتاحة.");
         ValidateNarrative(notes);
+        var year = AcademicYear;
         using var con = Open();
         using var tx = con.BeginTransaction();
         StudentBelongs(con, tx, schoolId, studentId);
+        RequireEnrolledYear(con, tx, schoolId, studentId, year);
         using var cmd = Cmd(con, tx, """
             INSERT INTO student_assessments(id,student_id,school_id,academic_year,
                 category,rating,notes,recorded_utc)
             VALUES($id,$student,$s,$y,$category,$rating,$notes,$at)
             """, ("$id", Id()), ("$student", studentId), ("$s", schoolId),
-            ("$y", AcademicYear), ("$category", category), ("$rating", rating),
+            ("$y", year), ("$category", category), ("$rating", rating),
             ("$notes", notes.Trim()), ("$at", Utc()));
         cmd.ExecuteNonQuery();
         Audit(con, tx, actor.Id, "student.assessment", studentId, $"school={schoolId};category={category}");
@@ -458,9 +500,11 @@ public sealed partial class SqliteStore
         if (status is not ("حاضر" or "غائب" or "متأخر" or "بعذر"))
             throw new ArgumentException("حالة حضور الطالب غير صحيحة.");
         ValidateNarrative(notes, 400);
+        var year = AcademicYear;
         using var con = Open();
         using var tx = con.BeginTransaction();
         StudentBelongs(con, tx, schoolId, studentId);
+        RequireEnrolledYear(con, tx, schoolId, studentId, year);
         using var cmd = Cmd(con, tx, """
             INSERT INTO student_attendance(id,student_id,school_id,attendance_date,
                 status,notes,updated_utc)

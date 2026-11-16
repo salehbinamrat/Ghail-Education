@@ -151,6 +151,7 @@ public sealed partial class SqliteStore
         var storedStage = DatabaseStage(stage);
         using var con = Open();
         using var tx = con.BeginTransaction();
+        EnsureSchoolStructureCompatible(con, tx, schoolId, storedStage, gender);
         using (var cmd = Cmd(con, tx, """
             UPDATE schools SET stage=$stage,gender=$gender
             WHERE id=$s AND is_active=1
