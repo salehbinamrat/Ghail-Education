@@ -33,6 +33,8 @@ public partial class MainWindow : Window
         AddNav("دليل المدارس", ShowSchools);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewStaff))
             AddNav("كادر المدارس والسجلات", ShowStaff);
+        if (AccessPolicy.Has(actor, PermissionFlags.ViewStudents))
+            AddNav("الطلاب والصفوف", ShowStudents);
         if (AccessPolicy.Has(actor, PermissionFlags.EditCensus) || AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("إحصاء الطلاب والمعلمين", ShowCensus);
         if (AccessPolicy.Has(actor, PermissionFlags.ApproveSchool) || AccessPolicy.Has(actor, PermissionFlags.ApproveDistrict) || AccessPolicy.Has(actor, PermissionFlags.ReviewCensus)) AddNav("مراجعة واعتماد الإحصاء", ShowReviews);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("التقارير والتصدير", ShowReports);
@@ -57,13 +59,30 @@ public partial class MainWindow : Window
 
     private void AddNav(string text, Action action)
     {
+        var menuColor = text switch
+        {
+            "لوحة التحكم" => Color.FromRgb(11, 102, 161),
+            "الطلاب والصفوف" => Color.FromRgb(0, 154, 163),
+            "إدارة المستخدمين" => Color.FromRgb(97, 83, 158),
+            "التقارير والتصدير" => Color.FromRgb(2, 123, 147),
+            "سجل العمليات" => Color.FromRgb(52, 100, 120),
+            _ => Color.FromRgb(8, 109, 143)
+        };
         var button = new Button
         {
-            Content = text, Background = new SolidColorBrush(Color.FromRgb(9, 107, 151)),
-            BorderThickness = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Right,
-            Padding = new Thickness(14, 11, 14, 11), Margin = new Thickness(2, 3, 2, 3)
+            Content = text, Background = new SolidColorBrush(menuColor),
+            BorderThickness = new Thickness(1), BorderBrush = new SolidColorBrush(Color.FromRgb(50, 155, 180)),
+            HorizontalContentAlignment = HorizontalAlignment.Right,
+            Padding = new Thickness(14, 11, 14, 11), Margin = new Thickness(2, 4, 2, 4),
+            MinHeight = 46
         };
-        button.Click += (_, _) => Safe(action);
+        button.Click += (_, _) =>
+        {
+            foreach (var sibling in NavPanel.Children.OfType<Button>())
+                sibling.Opacity = 0.85;
+            button.Opacity = 1;
+            Safe(action);
+        };
         NavPanel.Children.Add(button);
     }
 
@@ -92,9 +111,26 @@ public partial class MainWindow : Window
         VerticalAlignment = VerticalAlignment.Center, MaxLength = 180, TextAlignment = TextAlignment.Right
     };
 
-    private static Button Btn(string title, RoutedEventHandler click, bool allowed = true)
+    private static Button Btn(string title, RoutedEventHandler click, bool allowed = true,
+        string tone = "primary")
     {
-        var btn = new Button { Content = title, IsEnabled = allowed, Margin = new Thickness(3, 6, 3, 6) };
+        var (background, foreground) = tone switch
+        {
+            "success" => (Color.FromRgb(0, 132, 122), Colors.White),
+            "secondary" => (Color.FromRgb(219, 241, 250), Color.FromRgb(12, 67, 102)),
+            "warning" => (Color.FromRgb(215, 128, 27), Colors.White),
+            "danger" => (Color.FromRgb(174, 43, 65), Colors.White),
+            "purple" => (Color.FromRgb(104, 81, 174), Colors.White),
+            _ => (Color.FromRgb(0, 130, 179), Colors.White)
+        };
+        var btn = new Button
+        {
+            Content = title, IsEnabled = allowed, Margin = new Thickness(4, 7, 4, 7),
+            Background = new SolidColorBrush(background),
+            Foreground = new SolidColorBrush(foreground),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(7, 91, 126)),
+            MinHeight = 42
+        };
         btn.Click += click;
         return btn;
     }
@@ -785,14 +821,16 @@ public partial class MainWindow : Window
         {
             if (selected is not null) { Info("اختر «حساب جديد» أولا لتطبيق هذا النموذج."); return; }
             role.SelectedValue = Roles.Entry;
-            SetPermissions((long)(PermissionFlags.ViewSchools | PermissionFlags.ViewStaff | PermissionFlags.ViewReports));
+            SetPermissions((long)(PermissionFlags.ViewSchools | PermissionFlags.ViewStaff |
+                PermissionFlags.ViewReports | PermissionFlags.ViewStudents));
         }));
         presets.Children.Add(Btn("مستخدم مدرسة — مشاهدة وتعديل وإضافة", (_, _) =>
         {
             if (selected is not null) { Info("اختر «حساب جديد» أولا لتطبيق هذا النموذج."); return; }
             role.SelectedValue = Roles.Entry;
             SetPermissions((long)(PermissionFlags.ViewSchools | PermissionFlags.ViewReports | PermissionFlags.EditCensus |
-                PermissionFlags.ViewStaff | PermissionFlags.ManageStaff | PermissionFlags.ManageSchoolProfile));
+                PermissionFlags.ViewStaff | PermissionFlags.ManageStaff | PermissionFlags.ManageSchoolProfile |
+                PermissionFlags.ViewStudents | PermissionFlags.ManageStudents | PermissionFlags.ManageStudentEvaluation));
         }));
         form.Children.Add(presets);
         form.Children.Add(Label("لإضافة مسؤول في إدارة التربية اختر «مدير النظام»، ثم امنحه صلاحياته التفصيلية. حسابات المدرسة لا ترى سوى المدرسة المرتبطة بها.", 13));
