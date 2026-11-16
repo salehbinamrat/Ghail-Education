@@ -89,7 +89,7 @@ public partial class MainWindow : Window
     private static TextBox Field(string? value = null, double width = 200) => new()
     {
         Text = value ?? "", MinWidth = width, Width = width, HorizontalAlignment = HorizontalAlignment.Left,
-        VerticalAlignment = VerticalAlignment.Center
+        VerticalAlignment = VerticalAlignment.Center, MaxLength = 180, TextAlignment = TextAlignment.Right
     };
 
     private static Button Btn(string title, RoutedEventHandler click, bool allowed = true)
@@ -103,23 +103,46 @@ public partial class MainWindow : Window
     {
         Child = child, Padding = padding ?? new Thickness(17), Background = Brushes.White,
         CornerRadius = new CornerRadius(12), Margin = new Thickness(0, 0, 0, 16),
-        BorderBrush = new SolidColorBrush(Color.FromRgb(224, 232, 240)), BorderThickness = new Thickness(1)
+        BorderBrush = new SolidColorBrush(Color.FromRgb(184, 223, 233)), BorderThickness = new Thickness(1)
     };
 
+    // Long Arabic school and personnel names must not be squeezed to equal-width narrow columns.
+    // Retain horizontal scrolling, sorting, resizing and UI virtualization on every table.
     private static DataGrid GridFor<T>(IEnumerable<T> data, params (string Header, string Property, bool Editable)[] cols)
     {
         var grid = new DataGrid
         {
-            AutoGenerateColumns = false, ItemsSource = data, MinHeight = 150, MaxHeight = 420,
+            AutoGenerateColumns = false, ItemsSource = data, MinHeight = 160, MaxHeight = 520,
             IsReadOnly = cols.All(x => !x.Editable), SelectionMode = DataGridSelectionMode.Single,
             SelectionUnit = DataGridSelectionUnit.FullRow,
+            CanUserResizeColumns = true, CanUserSortColumns = true,
+            EnableRowVirtualization = true, EnableColumnVirtualization = true,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             ColumnWidth = new DataGridLength(1, DataGridLengthUnitType.Star)
         };
+        var cellText = new Style(typeof(TextBlock));
+        cellText.Setters.Add(new Setter(TextBlock.TextAlignmentProperty, TextAlignment.Right));
+        cellText.Setters.Add(new Setter(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis));
+        cellText.Setters.Add(new Setter(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center));
+        cellText.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(8, 2, 8, 2)));
         foreach (var col in cols)
         {
+            var minWidth = col.Property switch
+            {
+                "Name" or "FullName" or "SchoolName" => 225,
+                "JobTitle" or "Specialization" or "Qualification" => 175,
+                "Username" or "SchoolDisplayName" or "RoleDisplayName" => 160,
+                "Zone" or "Category" or "StatusArabic" => 145,
+                "Code" or "EmployeeCode" or "Year" => 120,
+                "Grade" or "Boys" or "Girls" => 90,
+                _ => 115
+            };
             grid.Columns.Add(new DataGridTextColumn
             {
                 Header = col.Header, IsReadOnly = !col.Editable,
+                MinWidth = minWidth, MaxWidth = 420,
+                ElementStyle = cellText,
                 Binding = new Binding(col.Property) { Mode = col.Editable ? BindingMode.TwoWay : BindingMode.OneWay,
                     UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged }
             });
@@ -193,7 +216,8 @@ public partial class MainWindow : Window
                 ("رمز المدرسة",code),("اسم المدرسة",name),("المنطقة",zone),
                 ("الملكية",ownership),("نوع المدرسة",gender),("المرحلة",stage) })
             {
-                var group = Stack(); group.Children.Add(Label(title, 13)); group.Children.Add(control); fields.Children.Add(group);
+                var group = Stack(); group.Margin = new Thickness(4, 4, 10, 10);
+                group.Children.Add(Label(title, 13)); group.Children.Add(control); fields.Children.Add(group);
             }
             form.Children.Add(fields);
             form.Children.Add(active);
@@ -491,7 +515,8 @@ public partial class MainWindow : Window
         foreach (var (title, control) in new (string, UIElement)[] {
             ("المعلمون الذكور", male), ("المعلمات", female), ("الفصول الدراسية", rooms) })
         {
-            var group = Stack(); group.Children.Add(Label(title, 13)); group.Children.Add(control); counts.Children.Add(group);
+            var group = Stack(); group.Margin = new Thickness(4, 4, 10, 10);
+            group.Children.Add(Label(title, 13)); group.Children.Add(control); counts.Children.Add(group);
         }
         form.Children.Add(counts);
         form.Children.Add(Label("ملاحظات المدرسة", 14));
@@ -644,6 +669,12 @@ public partial class MainWindow : Window
     }
 
     private sealed record RoleOption(string Code, string Label);
+    private sealed record AccountTableRow(UserAccount Account, string RoleDisplayName, string SchoolDisplayName)
+    {
+        public string Username => Account.Username;
+        public string IsOwner => Account.IsOwner ? "نعم" : "لا";
+        public string IsActive => Account.IsActive ? "نشط" : "موقوف";
+    }
 
     private void ShowUsers()
     {
@@ -653,10 +684,14 @@ public partial class MainWindow : Window
         root.Children.Add(Label("المسؤول المؤسس محمي ولا يمكن إيقافه أو تغيير صلاحياته. المسؤولون المفوضون لا يستطيعون إنشاء مسؤولين آخرين أو منح صلاحيات أكبر من صلاحياتهم.", 13));
 
         var users = _store.GetUsers(_actor);
-        var grid = GridFor(users,
-            ("الحساب", "Username", false), ("الدور", "Role", false),
-            ("المدرسة", "SchoolId", false), ("المسؤول المؤسس", "IsOwner", false),
-            ("نشط", "IsActive", false));
+        var schoolsById = _store.GetSchools(_actor).ToDictionary(x => x.Id, x => x.Name);
+        var accountRows = users.Select(u => new AccountTableRow(u, RoleName(u.Role),
+            u.SchoolId is null ? "إدارة التربية بالمديرية" :
+                schoolsById.GetValueOrDefault(u.SchoolId, "مدرسة غير متاحة"))).ToArray();
+        var grid = GridFor(accountRows,
+            ("الحساب", "Username", false), ("الدور", "RoleDisplayName", false),
+            ("المدرسة", "SchoolDisplayName", false), ("المسؤول المؤسس", "IsOwner", false),
+            ("الحالة", "IsActive", false));
         root.Children.Add(Box(grid));
 
         var form = Stack();
@@ -764,7 +799,7 @@ public partial class MainWindow : Window
 
         grid.SelectionChanged += (_, _) =>
         {
-            selected = grid.SelectedItem as UserAccount;
+            selected = (grid.SelectedItem as AccountTableRow)?.Account;
             if (selected is null) return;
             username.Text = selected.Username;
             username.IsReadOnly = true;
