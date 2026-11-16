@@ -22,7 +22,7 @@ public static class Statuses
 }
 
 public sealed record UserAccount(string Id, string Username, string Role, string? SchoolId,
-    bool IsActive, long PermissionMask = 0, bool IsOwner = false);
+    bool IsActive, long PermissionMask = 0, bool IsOwner = false, long AuthVersion = 0);
 public sealed record School(string Id, string Code, string Name, string Zone, string Ownership, string Stage, bool IsActive);
 public sealed record EnrollmentLine(string Grade, int Boys, int Girls)
 {
