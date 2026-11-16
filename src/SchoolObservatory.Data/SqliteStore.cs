@@ -5,7 +5,7 @@ using SchoolObservatory.Core;
 namespace SchoolObservatory.Data;
 
 /// <summary>Local single-device SQLite persistence. Not encrypted: do not store sensitive real-world data yet.</summary>
-public sealed class SqliteStore
+public sealed partial class SqliteStore
 {
     private readonly string _connectionString;
 
@@ -116,6 +116,7 @@ public sealed class SqliteStore
             CREATE INDEX IF NOT EXISTS ix_audit_date ON audit_events(created_utc DESC);
             """);
         cmd.ExecuteNonQuery();
+        MigrateUserPermissions(con);
     }
 
     public bool HasUsers()
@@ -165,8 +166,9 @@ public sealed class SqliteStore
         }
         var userId = Id();
         using (var cmd = Cmd(con, tx,
-            "INSERT INTO users(id,username,password_hash,role,school_id,created_utc) VALUES($id,$n,$p,$r,NULL,$at)",
-            ("$id", userId), ("$n", username.Trim()), ("$p", hash), ("$r", Roles.Admin), ("$at", Utc()))) cmd.ExecuteNonQuery();
+            "INSERT INTO users(id,username,password_hash,role,school_id,permission_mask,is_owner,created_utc) VALUES($id,$n,$p,$r,NULL,$perm,1,$at)",
+            ("$id", userId), ("$n", username.Trim()), ("$p", hash), ("$r", Roles.Admin),
+            ("$perm", (long)PermissionCatalog.All), ("$at", Utc()))) cmd.ExecuteNonQuery();
         using (var cmd = Cmd(con, tx, "INSERT INTO settings(key,value) VALUES('district_name',$d),('academic_year',$y)",
             ("$d", district.Trim()), ("$y", year))) cmd.ExecuteNonQuery();
         using (var cmd = Cmd(con, tx, "INSERT INTO census_rounds(id,academic_year,snapshot_date) VALUES($id,$y,$date)",
@@ -188,17 +190,20 @@ public sealed class SqliteStore
         using var con = Open();
         using var tx = con.BeginTransaction();
         using var cmd = Cmd(con, tx,
-            "SELECT id,username,password_hash,role,school_id,is_active,failed_attempts,lock_until_utc FROM users WHERE username=$n",
+            "SELECT id,username,password_hash,role,school_id,is_active,failed_attempts,lock_until_utc,permission_mask,is_owner FROM users WHERE username=$n",
             ("$n", username.Trim()));
         string id, normalized, hash, role;
         string? school, lockDate;
         int active, fails;
+        long permissions;
+        bool isOwner;
         using (var r = cmd.ExecuteReader())
         {
             if (!r.Read()) return null;
             id = Text(r, 0); normalized = Text(r, 1); hash = Text(r, 2); role = Text(r, 3);
             school = NullableText(r, 4); active = r.GetInt32(5); fails = r.GetInt32(6);
             lockDate = NullableText(r, 7);
+            permissions = r.GetInt64(8); isOwner = r.GetInt32(9) == 1;
         }
         if (active != 1) return null;
         if (DateTimeOffset.TryParse(lockDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var locked)
@@ -217,25 +222,36 @@ public sealed class SqliteStore
         using (var reset = Cmd(con, tx,
             "UPDATE users SET failed_attempts=0, lock_until_utc=NULL WHERE id=$id", ("$id", id))) reset.ExecuteNonQuery();
         tx.Commit();
-        return new UserAccount(id, normalized, role, school, true);
+        return new UserAccount(id, normalized, role, school, true, permissions, isOwner);
     }
 
     public IReadOnlyList<UserAccount> GetUsers(UserAccount actor)
     {
+        RequireFreshActor(actor);
         if (!AccessPolicy.CanCreateUsers(actor)) throw new UnauthorizedAccessException();
         using var con = Open();
-        using var cmd = Cmd(con, null, "SELECT id,username,role,school_id,is_active FROM users ORDER BY username");
+        using var cmd = Cmd(con, null, "SELECT id,username,role,school_id,is_active,permission_mask,is_owner FROM users ORDER BY is_owner DESC,username");
         using var r = cmd.ExecuteReader();
         var list = new List<UserAccount>();
-        while (r.Read()) list.Add(new UserAccount(Text(r, 0), Text(r, 1), Text(r, 2), NullableText(r, 3), r.GetInt32(4) == 1));
+        while (r.Read()) list.Add(ReadAccount(r));
         return list;
     }
 
-    public void CreateUser(UserAccount actor, string username, string password, string role, string? schoolId)
+    public void CreateUser(UserAccount actor, string username, string password, string role, string? schoolId) =>
+        CreateUser(actor, username, password, role, schoolId, (long)PermissionCatalog.DefaultForRole(role));
+
+    public void CreateUser(UserAccount actor, string username, string password, string role,
+        string? schoolId, long permissionMask)
     {
+        RequireFreshActor(actor);
         if (!AccessPolicy.CanCreateUsers(actor)) throw new UnauthorizedAccessException();
         ValidateUsername(username);
-        if (!Roles.All.Contains(role)) throw new ArgumentException("دور المستخدم غير معتمد.");
+        if (!PermissionCatalog.IsRoleAllowed(role, permissionMask))
+            throw new ArgumentException("الصلاحيات المختارة لا تتوافق مع دور المستخدم.");
+        if (!actor.IsOwner && (role == Roles.Admin ||
+            ((permissionMask & ~actor.PermissionMask) != 0) ||
+            ((PermissionFlags)permissionMask).HasFlag(PermissionFlags.ManageUsers)))
+            throw new UnauthorizedAccessException("لا يحق لك إنشاء مسؤول جديد أو منح صلاحيات أعلى من صلاحياتك.");
         if (role is Roles.Entry or Roles.Principal)
         {
             if (string.IsNullOrWhiteSpace(schoolId) || !GetSchools(actor).Any(s => s.Id == schoolId && s.IsActive))
@@ -247,9 +263,11 @@ public sealed class SqliteStore
         using var tx = con.BeginTransaction();
         var id = Id();
         using (var cmd = Cmd(con, tx,
-            "INSERT INTO users(id,username,password_hash,role,school_id,created_utc) VALUES($id,$n,$p,$r,$s,$at)",
-            ("$id", id), ("$n", username.Trim()), ("$p", hash), ("$r", role), ("$s", schoolId), ("$at", Utc()))) cmd.ExecuteNonQuery();
-        Audit(con, tx, actor.Id, "user.create", id, $"role={role};scope={schoolId ?? "district"}");
+            "INSERT INTO users(id,username,password_hash,role,school_id,permission_mask,is_owner,created_utc) VALUES($id,$n,$p,$r,$s,$perm,0,$at)",
+            ("$id", id), ("$n", username.Trim()), ("$p", hash), ("$r", role),
+            ("$s", schoolId), ("$perm", permissionMask), ("$at", Utc()))) cmd.ExecuteNonQuery();
+        Audit(con, tx, actor.Id, "user.create", id,
+            $"role={role};scope={schoolId ?? "district"};permissions={permissionMask}");
         tx.Commit();
     }
 
@@ -262,7 +280,8 @@ public sealed class SqliteStore
 
     public IReadOnlyList<School> GetSchools(UserAccount actor)
     {
-        if (!actor.IsActive || !Roles.All.Contains(actor.Role)) throw new UnauthorizedAccessException();
+        RequireFreshActor(actor);
+        if (!AccessPolicy.Has(actor, PermissionFlags.ViewSchools)) throw new UnauthorizedAccessException();
         using var con = Open();
         using var cmd = Cmd(con, null,
             "SELECT id,code,name,zone,ownership,stage,is_active FROM schools WHERE $scope IS NULL OR id=$scope ORDER BY zone,name",
@@ -286,6 +305,7 @@ public sealed class SqliteStore
 
     public void AddSchool(UserAccount actor, string code, string name, string zone, string ownership, string stage)
     {
+        RequireFreshActor(actor);
         if (!AccessPolicy.CanEditSchool(actor)) throw new UnauthorizedAccessException();
         CheckSchoolInput(code, name, zone, ownership, stage);
         using var con = Open();
@@ -301,6 +321,7 @@ public sealed class SqliteStore
 
     public int ImportSchools(UserAccount actor, IReadOnlyList<SchoolImport> rows)
     {
+        RequireFreshActor(actor);
         if (!AccessPolicy.CanEditSchool(actor)) throw new UnauthorizedAccessException();
         if (rows.Count == 0 || rows.Count > 3_000) throw new ArgumentException("عدد المدارس في ملف الاستيراد غير صحيح.");
         if (rows.Select(r => r.Code.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != rows.Count)
@@ -335,6 +356,7 @@ public sealed class SqliteStore
 
     public void UpdateSchool(UserAccount actor, School school)
     {
+        RequireFreshActor(actor);
         if (!AccessPolicy.CanEditSchool(actor)) throw new UnauthorizedAccessException();
         CheckSchoolInput(school.Code, school.Name, school.Zone, school.Ownership, school.Stage);
         using var con = Open();
@@ -388,6 +410,7 @@ public sealed class SqliteStore
 
     public CensusSubmission? GetLatestSubmission(UserAccount actor, string schoolId)
     {
+        RequireFreshActor(actor);
         if (!AccessPolicy.CanSeeSchool(actor, schoolId)) throw new UnauthorizedAccessException();
         using var con = Open();
         using var cmd = Cmd(con, null, """
@@ -400,7 +423,8 @@ public sealed class SqliteStore
 
     public IReadOnlyList<CensusSubmission> GetLatestSubmissions(UserAccount actor)
     {
-        if (!actor.IsActive || !Roles.All.Contains(actor.Role)) throw new UnauthorizedAccessException();
+        RequireFreshActor(actor);
+        if (!AccessPolicy.Has(actor, PermissionFlags.ViewSchools)) throw new UnauthorizedAccessException();
         using var con = Open();
         using var cmd = Cmd(con, null, """
             WITH most_recent AS (
@@ -447,6 +471,7 @@ public sealed class SqliteStore
 
     public void SaveDraft(UserAccount actor, string schoolId, CensusData data)
     {
+        RequireFreshActor(actor);
         if (!AccessPolicy.CanEditCensus(actor, schoolId)) throw new UnauthorizedAccessException();
         var errors = CensusValidation.Validate(data);
         if (errors.Count != 0) throw new ArgumentException(string.Join(Environment.NewLine, errors));
@@ -510,6 +535,7 @@ public sealed class SqliteStore
 
     public void ChangeStatus(UserAccount actor, string submissionId, string action, string reason = "")
     {
+        RequireFreshActor(actor);
         using var con = Open();
         using var tx = con.BeginTransaction();
         string schoolId, status, roundId;
@@ -557,7 +583,8 @@ public sealed class SqliteStore
 
     public DashboardStats GetDashboard(UserAccount actor)
     {
-        if (!actor.IsActive || !Roles.All.Contains(actor.Role)) throw new UnauthorizedAccessException();
+        RequireFreshActor(actor);
+        if (!AccessPolicy.Has(actor, PermissionFlags.ViewSchools)) throw new UnauthorizedAccessException();
         using var con = Open();
         using var cmd = Cmd(con, null, """
             WITH most_recent AS (
@@ -598,7 +625,8 @@ public sealed class SqliteStore
 
     public IReadOnlyList<AuditItem> GetRecentAudit(UserAccount actor, int limit = 100)
     {
-        if (!actor.IsActive || actor.Role is not (Roles.Admin or Roles.Statistician or Roles.Reviewer))
+        RequireFreshActor(actor);
+        if (!AccessPolicy.Has(actor, PermissionFlags.ViewAudit))
             throw new UnauthorizedAccessException();
         using var con = Open();
         using var cmd = Cmd(con, null, """
