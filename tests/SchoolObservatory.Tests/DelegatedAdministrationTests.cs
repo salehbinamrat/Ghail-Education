@@ -61,7 +61,7 @@ public sealed class DelegatedAdministrationTests
             db.CreateUser(manager, "otheradm", "Strong-Admin-Password-123!", Roles.Admin, null,
                 (long)PermissionFlags.ViewSchools));
         Assert.Throws<UnauthorizedAccessException>(() =>
-            db.CreateUser(manager, "review01", "Strong-Review-Password-123!", Roles.Reviewer, null,
+            db.CreateUser(manager, "statistic01", "Strong-Review-Password-123!", Roles.Statistician, null,
                 (long)(PermissionFlags.ViewSchools | PermissionFlags.ApproveDistrict)));
         db.CreateUser(manager, "viewer01", "Strong-Viewer-Password-123!", Roles.Viewer, null,
             (long)PermissionFlags.ViewSchools);
@@ -136,6 +136,17 @@ public sealed class DelegatedAdministrationTests
         Assert.Equal("legacy-founder", legacy.Id);
         Assert.Throws<InvalidOperationException>(() =>
             db.InitializeAdministrator("المديرية", "2026/2027", "newowner", "Strong-New-Password-123!"));
+    }
+
+    [Fact]
+    public void RoleCannotReceiveIncompatibleAdministrativePermissions()
+    {
+        var (db, owner) = CreateDatabase();
+        Assert.False(PermissionCatalog.IsRoleAllowed(Roles.Viewer,
+            (long)(PermissionFlags.ViewSchools | PermissionFlags.ApproveDistrict)));
+        Assert.Throws<ArgumentException>(() =>
+            db.CreateUser(owner, "viewer2", "Strong-Viewer-Password-123!", Roles.Viewer, null,
+                (long)(PermissionFlags.ViewSchools | PermissionFlags.ApproveDistrict)));
     }
 
 }
