@@ -112,7 +112,10 @@ public sealed partial class SqliteStore
             target = ReadAccount(r);
         }
         if (target.IsOwner)
+        {
+            if (actor.Id != target.Id) throw new UnauthorizedAccessException("لا يمكنك تعديل صلاحيات المسؤول المؤسس.");
             throw new InvalidOperationException("صلاحيات المسؤول المؤسس محمية ولا يمكن تعديلها من إدارة المستخدمين.");
+        }
         if (!AccessPolicy.CanManageAccount(actor, target))
             throw new UnauthorizedAccessException("لا يمكنك تغيير صلاحيات هذا المسؤول.");
         if (!PermissionCatalog.IsRoleAllowed(target.Role, permissionMask))
