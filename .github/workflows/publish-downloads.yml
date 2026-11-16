@@ -1,0 +1,142 @@
+name: Publish individual Windows downloads
+
+# Trigger only after one of the two independently running Windows pipelines completes.
+# This workflow exists on main only; publishing is prohibited for branches and PRs.
+on:
+  workflow_run:
+    workflows: ["Windows Core", "Windows Release"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: individual-downloads-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish four direct-download release assets
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Require success from BOTH workflows for the same commit
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          get_run() {
+            gh api "repos/${REPO}/actions/workflows/$1/runs?branch=main&per_page=100" \
+              | jq -c --arg sha "$HEAD_SHA" '[.workflow_runs[] |
+                  select(.head_sha == $sha and .event == "push")] |
+                  sort_by(.run_number, .run_attempt) | last // empty'
+          }
+          core="$(get_run windows-core.yml)"
+          release="$(get_run windows-release.yml)"
+          if [[ -z "$core" || -z "$release" ]]; then
+            echo "One of the workflows has not started for this commit; no publication."
+            exit 0
+          fi
+          for run in "$core" "$release"; do
+            status="$(jq -r '.status' <<<"$run")"
+            conclusion="$(jq -r '.conclusion' <<<"$run")"
+            if [[ "$status" != "completed" || "$conclusion" != "success" ]]; then
+              echo "The same-commit workflows have not both succeeded: status=$status conclusion=$conclusion"
+              exit 0
+            fi
+          done
+          # Check that main still points to the tested commit; never release an outdated candidate.
+          main="$(gh api "repos/${REPO}/git/ref/heads/main" --jq '.object.sha')"
+          if [[ "$main" != "$HEAD_SHA" ]]; then
+            echo "Newer main commit exists; skip old release."
+            exit 0
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          echo "release_run_id=$(jq -r '.id' <<<"$release")" >> "$GITHUB_OUTPUT"
+          echo "Both Windows Core and Release succeeded for $HEAD_SHA"
+
+      - name: Download four separate validated build outputs
+        if: steps.verify.outputs.ready == 'true'
+        shell: bash
+        env:
+          RELEASE_RUN_ID: ${{ steps.verify.outputs.release_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist temp
+          for arch in x86 x64; do
+            for kind in portable installer; do
+              artifact="school-observatory-${arch}-${kind}"
+              gh run download "$RELEASE_RUN_ID" -R "$REPO" --name "$artifact" --dir "temp/$artifact"
+              if [[ "$kind" == portable ]]; then
+                filename="SchoolObservatory-${arch}-Portable.zip"
+              else
+                filename="SchoolObservatory-${arch}-Installer.exe"
+              fi
+              file="$(find "temp/$artifact" -type f -name "$filename" -print -quit)"
+              if [[ -z "$file" ]]; then
+                echo "::error::Missing independent download: $filename"
+                exit 1
+              fi
+              cp "$file" "dist/$filename"
+              [[ $(stat -c %s "dist/$filename") -gt 500000 ]]
+            done
+          done
+          [[ "$(find dist -maxdepth 1 -type f | wc -l)" -eq 4 ]]
+          for file in dist/*; do
+            signature="$(od -An -tx1 -N4 "$file" | tr -d ' \n')"
+            case "$file" in
+              *.exe) [[ "${signature:0:4}" == "4d5a" ]] || { echo "::error::Invalid EXE: $file"; exit 1; };;
+              *.zip) [[ "${signature:0:4}" == "504b" ]] || { echo "::error::Invalid ZIP: $file"; exit 1; };;
+            esac
+          done
+          sha256sum dist/* | sort | tee SHA256SUMS.txt
+
+      - name: Publish Windows downloads directly to GitHub Releases
+        if: steps.verify.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          short="${HEAD_SHA:0:7}"
+          tag="v0.1.2-${short}"
+          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Release $tag already exists; no duplicate."
+            exit 0
+          fi
+          cat > release-notes.md <<'EOF'
+          ## المرصد المدرسي — النسخ الأربع المستقلة
+          كل نسخة ملف منفصل يمكن تنزيله مباشرة دون تنزيل النسخ الأخرى.
+
+          | نظام ويندوز | نسخة تعمل مباشرة | نسخة تثبيت |
+          | --- | --- | --- |
+          | 32 بت | SchoolObservatory-x86-Portable.zip | SchoolObservatory-x86-Installer.exe |
+          | 64 بت | SchoolObservatory-x64-Portable.zip | SchoolObservatory-x64-Installer.exe |
+
+          Portable: فك ضغط ZIP ثم شغّل SchoolObservatory.exe. Installer: شغّل ملف EXE لتثبيت البرنامج.
+
+          تنبيه: هذا إصدار تجريبي؛ قاعدة البيانات المحلية غير مشفرة بعد. لا تستخدم بيانات إنتاجية حساسة.
+          لا تحذف قاعدة البيانات الموجودة في %LOCALAPPDATA%\\SchoolObservatory\\observatory.db عند التحديث.
+          EOF
+          {
+            echo ""
+            echo "### SHA-256 للملفات الأربعة"
+            echo '~~~text'
+            sed 's@dist/@@g' SHA256SUMS.txt
+            echo '~~~'
+          } >> release-notes.md
+          gh release create "$tag" dist/SchoolObservatory-x86-Portable.zip \
+            dist/SchoolObservatory-x86-Installer.exe \
+            dist/SchoolObservatory-x64-Portable.zip \
+            dist/SchoolObservatory-x64-Installer.exe \
+            --repo "$REPO" --target "$HEAD_SHA" \
+            --title "المرصد المدرسي 0.1.2 — النسخ الأربع المنفصلة" \
+            --notes-file release-notes.md --latest

@@ -225,7 +225,12 @@ public partial class MainWindow : Window
                 if (file.ShowDialog() != true) return;
                 if (new FileInfo(file.FileName).Length > 5_000_000)
                     throw new ArgumentException("حجم الملف يتجاوز 5 ميجابايت.");
-                var entries = SchoolCsvParser.Parse(File.ReadAllText(file.FileName, Encoding.UTF8));
+                IReadOnlyList<SchoolImport> entries;
+                try { entries = SchoolCsvParser.ParseUtf8(File.ReadAllBytes(file.FileName)); }
+                catch (DecoderFallbackException)
+                {
+                    throw new ArgumentException("تعذر قراءة الملف بترميز UTF-8 الصحيح. احفظ قائمة المدارس بصيغة CSV UTF-8 من Excel ثم حاول مجددا.");
+                }
                 if (MessageBox.Show($"سيتم إضافة {entries.Count} مدرسة. هل تريد المتابعة؟",
                     "تأكيد الاستيراد", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
                 var imported = _store.ImportSchools(_actor, entries);
@@ -235,6 +240,7 @@ public partial class MainWindow : Window
             {
                 selected = null; grid.SelectedItem = null; code.Text = ""; name.Text = "";
                 zone.Text = ""; active.IsChecked = true;
+                ownership.SelectedIndex = 0; stage.SelectedIndex = 0;
             }));
             form.Children.Add(buttons);
             root.Children.Add(Box(form));

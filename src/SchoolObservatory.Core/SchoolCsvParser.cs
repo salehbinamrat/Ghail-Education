@@ -9,6 +9,17 @@ public static class SchoolCsvParser
 {
     private static readonly string[] RequiredHeaders = ["code", "name", "zone", "ownership", "stage"];
 
+    /// <summary>Reject undecodable UTF-8 instead of silently saving corrupted Arabic school names.</summary>
+    public static IReadOnlyList<SchoolImport> ParseUtf8(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length > 5_000_000)
+            throw new ArgumentException("حجم الملف أكبر من الحد المسموح (5 ميجابايت).");
+        var text = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true)
+            .GetString(bytes);
+        return Parse(text);
+    }
+
+
     public static IReadOnlyList<SchoolImport> Parse(string csv)
     {
         if (csv.Length > 5_000_000) throw new ArgumentException("حجم الملف أكبر من الحد المسموح (5 ميجابايت).");

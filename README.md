@@ -4,9 +4,24 @@
 
 ## حالة التنفيذ
 
-هذه **نسخة مصدر أولية** (MVP / المرحلة الأولى)، وليست إصداراً معتمداً للإنتاج. تتضمن التهيئة الأولى وتسجيل الدخول والصلاحيات ودليل المدارس وإحصاء الطلاب والمعلمين والفصول، ومسار إرسال ومراجعة واعتماد الإحصاء، والتقارير المجمعة والتصدير إلى CSV، وسجل العمليات. لم يجر في بيئة الإنشاء بناء فعلي لـ WPF ولا تشغيل xUnit لأن .NET SDK غير متوافر؛ يجب نجاح Windows Core وWindows Release قبل النشر.
+هذه **نسخة مصدر أولية** (MVP / المرحلة الأولى)، وليست إصداراً معتمداً للإنتاج. تتضمن التهيئة الأولى وتسجيل الدخول والصلاحيات ودليل المدارس وإحصاء الطلاب والمعلمين والفصول، ومسار إرسال ومراجعة واعتماد الإحصاء، والتقارير المجمعة والتصدير إلى CSV، وسجل العمليات. تُجرى اختبارات WPF وxUnit وبناء نسخ ويندوز على GitHub Actions؛ يلزم أيضا اختبار تشغيل يدوي على أجهزة Windows قبل اعتماد الاستخدام الرسمي.
 
 **تحذير:** قاعدة بيانات SQLite في هذه النسخة *غير مشفرة*. لا تدخل بيانات حقيقية حساسة قبل دمج تشفير SQLCipher والتحقق منه، وتدقيق الصلاحيات وإجراءات النسخ والاستعادة. يعمل التطبيق حالياً على حاسوب واحد بقاعدة محلية، وليس نظاماً متعدد الأجهزة.
+
+## تنزيل البرنامج — أربعة ملفات مستقلة
+
+**اختر ملفا واحدا فقط حسب نظام ويندوز وطريقة التشغيل؛ لا تحتاج تنزيل الحزم الأخرى.**
+
+| النظام | تشغيل مباشر Portable (.zip) | تثبيت Installer (.exe) |
+| --- | --- | --- |
+| Windows 32 بت | [تنزيل Portable 32-bit](https://github.com/salehbinamrat/Ghail-Education/releases/latest/download/SchoolObservatory-x86-Portable.zip) | [تنزيل Installer 32-bit](https://github.com/salehbinamrat/Ghail-Education/releases/latest/download/SchoolObservatory-x86-Installer.exe) |
+| Windows 64 بت | [تنزيل Portable 64-bit](https://github.com/salehbinamrat/Ghail-Education/releases/latest/download/SchoolObservatory-x64-Portable.zip) | [تنزيل Installer 64-bit](https://github.com/salehbinamrat/Ghail-Education/releases/latest/download/SchoolObservatory-x64-Installer.exe) |
+
+- **Portable:** ملف ZIP واحد؛ فك ضغطه، ثم شغّل `SchoolObservatory.exe` مباشرة دون تثبيت.
+- **Installer:** ملف EXE واحد؛ شغّله لتثبيت البرنامج، وإنشاء اختصار على سطح المكتب إذا اخترت ذلك.
+- صفحة [الإصدارات الرسمية](https://github.com/salehbinamrat/Ghail-Education/releases/latest) تعرض الملفات الأربعة بشكل مستقل، مع قيم SHA-256 للتحقق من سلامة التنزيل.
+- يُنشر إصدار تنزيل مباشر بعد اجتياز مساري **Windows Core** و**Windows Release** على الالتزام نفسه في `main`. في Release تنجح الاختبارات قبل بناء نسخ x86/x64.
+- **مهم:** روابط التنزيل المباشر تعمل بعد اكتمال نشر أول GitHub Release بنجاح. قبل ذلك ستكون صفحة الإصدارات بلا ملفات؛ لا تستخدم تنزيل Source code بديلا عن البرنامج التنفيذي.
 
 ## المتطلبات
 
