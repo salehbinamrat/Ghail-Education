@@ -67,6 +67,34 @@ public sealed class SchoolRecordsTests
         Assert.Throws<UnauthorizedAccessException>(() =>
             db.SaveSchoolStaff(editor, new SchoolStaff("", b.Id, "002", "زيد", "إداري", "وكيل", "", "", "ذكور", true)));
         Assert.Empty(db.GetSchoolStaff(owner, b.Id));
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            db.UpdateOwnSchoolProfile(editor, b.Id, "ثانوي", "ذكور"));
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            db.UpdateOwnSchoolProfile(viewer, a.Id, "ثانوي", "ذكور"));
+    }
+
+    [Fact]
+    public void SchoolEditorMayChangeItsOwnGenderAndStageWhenExplicitlyGranted()
+    {
+        var (db, owner, a, b, _) = Setup();
+        db.CreateUser(owner, "profile_a", "Strong-Editor-Password-123!", Roles.Entry, a.Id,
+            (long)(PermissionFlags.ViewSchools | PermissionFlags.ManageSchoolProfile));
+        var editor = db.Authenticate("profile_a", "Strong-Editor-Password-123!")!;
+        db.UpdateOwnSchoolProfile(editor, a.Id, "مجمع تربوي", "مختلطة");
+        Assert.Equal("مختلطة", db.GetSchools(editor).Single().Gender);
+        Assert.Equal("مجمع تربوي", db.GetSchools(editor).Single().Stage);
+        Assert.Equal("مجمع تربوي", db.GetSchools(owner).Single(s => s.Id == b.Id).Stage);
+    }
+
+    [Fact]
+    public void SchoolCsvImportSupportsOptionalGenderAndLegacyColumns()
+    {
+        var withGender = SchoolCsvParser.Parse(
+            "code,name,zone,ownership,stage,gender\\nS1,الأولى,العليب,حكومية,مجمع تربوي,إناث\\n");
+        Assert.Equal("إناث", Assert.Single(withGender).Gender);
+        var old = SchoolCsvParser.Parse(
+            "code,name,zone,ownership,stage\\nS2,الثانية,العليب,حكومية,أساسي\\n");
+        Assert.Equal("مختلطة", Assert.Single(old).Gender);
     }
 
     [Fact]
