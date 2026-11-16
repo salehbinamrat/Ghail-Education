@@ -1,5 +1,5 @@
 #define AppName "المرصد المدرسي"
-#define AppVersion "0.1.0"
+#define AppVersion "0.1.1"
 #ifndef AppArch
   #define AppArch "x64"
 #endif
@@ -21,6 +21,7 @@ SolidCompression=yes
 PrivilegesRequired=lowest
 UninstallDisplayIcon={app}\SchoolObservatory.exe
 WizardStyle=modern
+SetupIconFile=..\assets\SchoolObservatory.ico
 #if AppArch == "x64"
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
