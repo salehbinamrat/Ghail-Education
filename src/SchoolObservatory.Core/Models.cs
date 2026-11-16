@@ -63,7 +63,8 @@ public static class AccessPolicy
 
     public static bool CanManageAccount(UserAccount actor, UserAccount target) =>
         CanCreateUsers(actor) && actor.Id != target.Id && !target.IsOwner &&
-        (actor.IsOwner || target.Role != Roles.Admin);
+        (actor.IsOwner || (target.Role != Roles.Admin &&
+            (target.PermissionMask & ~actor.PermissionMask) == 0));
 
     public static bool CanPerform(UserAccount actor, string action, string schoolId, string status) =>
         actor.IsActive && (action switch
