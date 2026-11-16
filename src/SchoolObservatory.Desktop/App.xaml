@@ -43,7 +43,6 @@
       <Setter Property="FontFamily" Value="Segoe UI"/>
       <Setter Property="FontSize" Value="14"/>
       <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     </Style>
     <Style TargetType="DataGrid">
       <Setter Property="FlowDirection" Value="RightToLeft"/>
