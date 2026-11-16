@@ -298,8 +298,24 @@ public sealed partial class SqliteStore
 
     public SchoolStudent GetStudent(UserAccount actor, string schoolId, string studentId)
     {
-        var student = GetStudents(actor, schoolId).FirstOrDefault(x => x.Id == studentId);
-        return student ?? throw new UnauthorizedAccessException("لا يمكن عرض الطالب خارج كشف المدرسة الحالي.");
+        RequireFreshActor(actor);
+        if (!AccessPolicy.CanSeeStudents(actor, schoolId))
+            throw new UnauthorizedAccessException("لا تملك صلاحية عرض ملف الطالب.");
+        var year = AcademicYear;
+        using var con = Open();
+        using var cmd = Cmd(con, null, """
+            SELECT st.id,st.school_id,st.student_code,st.full_name,g.grade,g.section,
+                st.gender,st.guardian_name,st.guardian_phone,st.notes,st.is_active,en.academic_year
+            FROM school_students st
+            JOIN student_enrollments en ON en.student_id=st.id AND en.school_id=st.school_id
+            JOIN school_grades g ON g.id=en.grade_id AND g.school_id=en.school_id
+                AND g.academic_year=en.academic_year
+            WHERE st.id=$id AND st.school_id=$s AND en.academic_year=$year
+            """, ("$id", studentId), ("$s", schoolId), ("$year", year));
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read())
+            throw new UnauthorizedAccessException("لا يمكن فتح الطالب خارج كشف المدرسة الحالي.");
+        return ReadStudent(reader);
     }
 
     public void SaveStudent(UserAccount actor, SchoolStudent student)

@@ -10,6 +10,16 @@ namespace SchoolObservatory.Desktop;
 
 public partial class MainWindow
 {
+    private sealed record StudentRosterItem(SchoolStudent Student)
+    {
+        public string StudentCode => Student.StudentCode;
+        public string FullName => Student.FullName;
+        public int Grade => Student.Grade;
+        public string Section => Student.Section;
+        public string GuardianName => Student.GuardianName;
+        public string StatusArabic => Student.IsActive ? "مسجل" : "غير نشط";
+    }
+
     private static ComboBox Choice(IEnumerable<string> items, double width = 160)
     {
         return new ComboBox
@@ -37,7 +47,10 @@ public partial class MainWindow
         return line;
     }
 
-    private void ShowStudents()
+    private void ShowStudents() => ShowStudentsCore();
+
+    private void ShowStudentsCore(string? preferredSchool = null, int? preferredGrade = null,
+        string? preferredSection = null)
     {
         if (!AccessPolicy.Has(_actor, PermissionFlags.ViewStudents))
             throw new UnauthorizedAccessException("لا تملك صلاحية الاطلاع على ملفات الطلاب.");
@@ -65,15 +78,15 @@ public partial class MainWindow
         var selectedCount = Label("عدد الطلاب في الكشف: 0", 14, true);
         root.Children.Add(selectedCount);
 
-        var roster = GridFor(Array.Empty<SchoolStudent>(),
+        var roster = GridFor(Array.Empty<StudentRosterItem>(),
             ("رمز الطالب", "StudentCode", false),
             ("اسم الطالب — اضغط لفتح ملفه", "FullName", false),
             ("الصف", "Grade", false), ("الشعبة", "Section", false),
-            ("ولي الأمر", "GuardianName", false), ("الحالة", "IsActive", false));
+            ("ولي الأمر", "GuardianName", false), ("الحالة", "StatusArabic", false));
         roster.MaxHeight = 480;
         root.Children.Add(Box(roster));
         var editor = Stack();
-        editor.Children.Add(Label("إضافة طالب جديد أو تعديل الطالب المحدد", 17, true));
+        editor.Children.Add(Label("إضافة طالب إلى الصف والشعبة المختارين", 17, true));
         var studentCode = Field(width: 170);
         var fullName = Field(width: 275);
         var guardianName = Field(width: 235);
@@ -111,12 +124,12 @@ public partial class MainWindow
             var selectedGrade = gradePicker.SelectedItem as SchoolGrade;
             if (selectedSchool is null)
             {
-                roster.ItemsSource = Array.Empty<SchoolStudent>();
+                roster.ItemsSource = Array.Empty<StudentRosterItem>();
                 selectedCount.Text = "عدد الطلاب في الكشف: 0";
                 return;
             }
             var students = _store.GetStudents(_actor, selectedSchool.Id, selectedGrade?.Id);
-            roster.ItemsSource = students;
+            roster.ItemsSource = students.Select(s => new StudentRosterItem(s)).ToArray();
             selectedCount.Text = $"عدد الطلاب في الكشف: {students.Count}";
             editor.IsEnabled = AccessPolicy.CanManageStudents(_actor, selectedSchool.Id) &&
                 selectedGrade is not null;
@@ -143,8 +156,12 @@ public partial class MainWindow
             if (schoolPicker.SelectedItem is not School school) return;
             var available = _store.GetSchoolGrades(_actor, school.Id);
             gradePicker.ItemsSource = available;
-            gradePicker.SelectedItem = selectId is null ? available.FirstOrDefault()
-                : available.FirstOrDefault(x => x.Id == selectId);
+            gradePicker.SelectedItem = (selectId is not null
+                ? available.FirstOrDefault(x => x.Id == selectId) : null)
+                ?? (preferredGrade is not null
+                    ? available.FirstOrDefault(x => x.Grade == preferredGrade && x.Section == preferredSection)
+                    : null)
+                ?? available.FirstOrDefault();
             newGradePanel.IsEnabled = AccessPolicy.CanManageStudents(_actor, school.Id);
             var options = school.Stage switch
             {
@@ -165,9 +182,9 @@ public partial class MainWindow
         });
         roster.SelectionChanged += (_, _) =>
         {
-            if (roster.SelectedItem is SchoolStudent selected &&
+            if (roster.SelectedItem is StudentRosterItem selected &&
                 schoolPicker.SelectedItem is School school)
-                Safe(() => ShowStudentProfile(school, selected.Id));
+                Safe(() => ShowStudentProfile(school, selected.Student.Id));
         };
 
         var actions = new WrapPanel();
@@ -231,14 +248,15 @@ public partial class MainWindow
         };
 
         Display("الطلاب والصفوف", root);
-        schoolPicker.SelectedIndex = 0;
+        schoolPicker.SelectedItem = schools.FirstOrDefault(x => x.Id == preferredSchool) ?? schools[0];
     }
 
     private void ShowStudentProfile(School school, string studentId)
     {
         var student = _store.GetStudent(_actor, school.Id, studentId);
         var root = Stack();
-        root.Children.Add(Btn("العودة إلى كشوف الصفوف", (_, _) => ShowStudents(), tone: "secondary"));
+        root.Children.Add(Btn("العودة إلى كشوف الصفوف", (_, _) =>
+            ShowStudentsCore(school.Id, student.Grade, student.Section), tone: "secondary"));
         root.Children.Add(Label($"ملف الطالب: {student.FullName}", 21, true));
         root.Children.Add(Label($"الرقم المدرسي: {student.StudentCode}  |  الصف {student.Grade} / {student.Section}" +
             $"  |  العام الدراسي: {student.AcademicYear}", 14));
