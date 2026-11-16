@@ -139,8 +139,12 @@ public sealed partial class SqliteStore
         string schoolId, string studentId, string year)
     {
         using var cmd = Cmd(con, tx, """
-            SELECT EXISTS(SELECT 1 FROM student_enrollments
-              WHERE school_id=$s AND student_id=$student AND academic_year=$year AND status='مسجل')
+            SELECT EXISTS(SELECT 1 FROM student_enrollments en
+              JOIN school_students st ON st.id=en.student_id AND st.school_id=en.school_id
+              JOIN schools sc ON sc.id=en.school_id
+              WHERE en.school_id=$s AND en.student_id=$student
+                AND en.academic_year=$year AND en.status='مسجل'
+                AND st.is_active=1 AND sc.is_active=1)
             """, ("$s", schoolId), ("$student", studentId), ("$year", year));
         if (Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture) != 1)
             throw new InvalidOperationException(
