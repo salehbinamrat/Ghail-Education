@@ -736,6 +736,24 @@ public partial class MainWindow : Window
         role.SelectionChanged += (_, _) => SetRoleDefaults();
         role.SelectedValue = Roles.Entry;
 
+        form.Children.Add(Label("إعداد حساب مدرسة جاهز — اختر المدرسة المطلوبة ثم نوع الصلاحية:", 15, true));
+        var presets = new WrapPanel();
+        presets.Children.Add(Btn("مستخدم مدرسة — مشاهدة فقط", (_, _) =>
+        {
+            if (selected is not null) { Info("اختر «حساب جديد» أولا لتطبيق هذا النموذج."); return; }
+            role.SelectedValue = Roles.Entry;
+            SetPermissions((long)(PermissionFlags.ViewSchools | PermissionFlags.ViewStaff));
+        }));
+        presets.Children.Add(Btn("مستخدم مدرسة — مشاهدة وتعديل وإضافة", (_, _) =>
+        {
+            if (selected is not null) { Info("اختر «حساب جديد» أولا لتطبيق هذا النموذج."); return; }
+            role.SelectedValue = Roles.Entry;
+            SetPermissions((long)(PermissionFlags.ViewSchools | PermissionFlags.EditCensus |
+                PermissionFlags.ViewStaff | PermissionFlags.ManageStaff | PermissionFlags.ManageSchoolProfile));
+        }));
+        form.Children.Add(presets);
+        form.Children.Add(Label("لإضافة مسؤول في إدارة التربية اختر «مدير النظام»، ثم امنحه صلاحياته التفصيلية. حسابات المدرسة لا ترى سوى المدرسة المرتبطة بها.", 13));
+
         grid.SelectionChanged += (_, _) =>
         {
             selected = grid.SelectedItem as UserAccount;
