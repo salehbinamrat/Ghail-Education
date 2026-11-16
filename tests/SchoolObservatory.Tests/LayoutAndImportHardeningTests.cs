@@ -22,8 +22,8 @@ public sealed class LayoutAndImportHardeningTests
     {
         var doc = XDocument.Load(RepositoryFile("src", "SchoolObservatory.Desktop", "App.xaml"));
         XNamespace p = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
-        var style = Assert.Single(doc.Descendants(p + "Style").Where(s =>
-            (string?)s.Attribute("TargetType") == "DataGrid"));
+        var style = Assert.Single(doc.Descendants(p + "Style"), s =>
+            (string?)s.Attribute("TargetType") == "DataGrid");
         var setters = style.Elements(p + "Setter").ToDictionary(
             s => (string?)s.Attribute("Property") ?? "", s => (string?)s.Attribute("Value") ?? "");
         Assert.Equal("Auto", setters["HorizontalScrollBarVisibility"]);
@@ -38,8 +38,8 @@ public sealed class LayoutAndImportHardeningTests
         var doc = XDocument.Load(RepositoryFile("src", "SchoolObservatory.Desktop", "MainWindow.xaml"));
         XNamespace p = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
         XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
-        var header = Assert.Single(doc.Descendants(p + "Grid").Where(g =>
-            (string?)g.Attribute(x + "Name") == "HeaderLayout"));
+        var header = Assert.Single(doc.Descendants(p + "Grid"), g =>
+            (string?)g.Attribute(x + "Name") == "HeaderLayout");
         Assert.Equal(2, header.Element(p + "Grid.ColumnDefinitions")?.Elements(p + "ColumnDefinition").Count());
         Assert.Contains(header.Elements(p + "TextBlock"), t =>
             (string?)t.Attribute(x + "Name") == "SectionTitle" && (string?)t.Attribute("Grid.Column") == "0");
