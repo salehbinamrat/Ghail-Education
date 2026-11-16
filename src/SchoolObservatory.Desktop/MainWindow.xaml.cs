@@ -31,6 +31,8 @@ public partial class MainWindow : Window
         YearText.Text = $"العام الدراسي: {store.AcademicYear}";
         AddNav("لوحة التحكم", ShowDashboard);
         AddNav("دليل المدارس", ShowSchools);
+        if (AccessPolicy.Has(actor, PermissionFlags.ViewStaff))
+            AddNav("كادر المدارس والسجلات", ShowStaff);
         if (AccessPolicy.Has(actor, PermissionFlags.EditCensus) || AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("إحصاء الطلاب والمعلمين", ShowCensus);
         if (AccessPolicy.Has(actor, PermissionFlags.ApproveSchool) || AccessPolicy.Has(actor, PermissionFlags.ApproveDistrict) || AccessPolicy.Has(actor, PermissionFlags.ReviewCensus)) AddNav("مراجعة واعتماد الإحصاء", ShowReviews);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("التقارير والتصدير", ShowReports);
@@ -174,7 +176,8 @@ public partial class MainWindow : Window
         root.Children.Add(Label($"عدد المدارس الظاهرة: {data.Count} — حسب الصلاحيات المحددة لحسابك", 15));
         var grid = GridFor(data,
             ("الرمز", "Code", false), ("المدرسة", "Name", false), ("المنطقة", "Zone", false),
-            ("الملكية", "Ownership", false), ("المرحلة", "Stage", false), ("نشطة", "IsActive", false));
+            ("الملكية", "Ownership", false), ("النوع", "Gender", false),
+            ("المرحلة", "Stage", false), ("نشطة", "IsActive", false));
         root.Children.Add(Box(grid));
         if (AccessPolicy.CanEditSchool(_actor))
         {
@@ -182,12 +185,13 @@ public partial class MainWindow : Window
             form.Children.Add(Label("إضافة مدرسة أو تعديل المدرسة المحددة", 17, true));
             var code = Field(width: 150); var name = Field(width: 300); var zone = Field(width: 210);
             var ownership = new ComboBox { Width = 160, ItemsSource = new[] { "حكومية", "أهلية" }, SelectedIndex = 0 };
-            var stage = new ComboBox { Width = 160, ItemsSource = new[] { "أساسي", "ثانوي", "أساسي وثانوي" }, SelectedIndex = 0 };
+            var stage = new ComboBox { Width = 160, ItemsSource = new[] { "أساسي", "ثانوي", "مجمع تربوي" }, SelectedIndex = 0 };
+            var gender = new ComboBox { Width = 160, ItemsSource = new[] { "ذكور", "إناث", "مختلطة" }, SelectedIndex = 2 };
             var active = new CheckBox { Content = "المدرسة نشطة", IsChecked = true, Margin = new Thickness(8), VerticalAlignment = VerticalAlignment.Center };
             var fields = new WrapPanel();
             foreach (var (title, control) in new (string, UIElement)[] {
                 ("رمز المدرسة",code),("اسم المدرسة",name),("المنطقة",zone),
-                ("الملكية",ownership),("المرحلة",stage) })
+                ("الملكية",ownership),("نوع المدرسة",gender),("المرحلة",stage) })
             {
                 var group = Stack(); group.Children.Add(Label(title, 13)); group.Children.Add(control); fields.Children.Add(group);
             }
@@ -200,12 +204,13 @@ public partial class MainWindow : Window
                 if (selected is null) return;
                 code.Text = selected.Code; name.Text = selected.Name; zone.Text = selected.Zone;
                 ownership.SelectedItem = selected.Ownership; stage.SelectedItem = selected.Stage;
+                gender.SelectedItem = selected.Gender;
                 active.IsChecked = selected.IsActive;
             };
             var buttons = new WrapPanel();
             buttons.Children.Add(Btn("إضافة مدرسة جديدة", (_, _) => Safe(() =>
             {
-                _store.AddSchool(_actor, code.Text, name.Text, zone.Text, ownership.SelectedItem?.ToString() ?? "", stage.SelectedItem?.ToString() ?? "");
+                _store.AddSchool(_actor, code.Text, name.Text, zone.Text, ownership.SelectedItem?.ToString() ?? "", stage.SelectedItem?.ToString() ?? "", gender.SelectedItem?.ToString() ?? "مختلطة");
                 Info("تمت إضافة المدرسة."); ShowSchools();
             })));
             buttons.Children.Add(Btn("حفظ تعديل المدرسة المحددة", (_, _) => Safe(() =>
@@ -215,7 +220,8 @@ public partial class MainWindow : Window
                 {
                     Code = code.Text, Name = name.Text, Zone = zone.Text,
                     Ownership = ownership.SelectedItem?.ToString() ?? "",
-                    Stage = stage.SelectedItem?.ToString() ?? "", IsActive = active.IsChecked == true
+                    Stage = stage.SelectedItem?.ToString() ?? "", Gender = gender.SelectedItem?.ToString() ?? "مختلطة",
+                    IsActive = active.IsChecked == true
                 });
                 Info("تم حفظ بيانات المدرسة."); ShowSchools();
             })));
@@ -240,12 +246,204 @@ public partial class MainWindow : Window
             {
                 selected = null; grid.SelectedItem = null; code.Text = ""; name.Text = "";
                 zone.Text = ""; active.IsChecked = true;
-                ownership.SelectedIndex = 0; stage.SelectedIndex = 0;
+                ownership.SelectedIndex = 0; stage.SelectedIndex = 0; gender.SelectedIndex = 2;
             }));
             form.Children.Add(buttons);
             root.Children.Add(Box(form));
         }
+        else if ((_actor.Role is Roles.Entry or Roles.Principal) && data.Count == 1 &&
+                 AccessPolicy.CanEditSchoolProfile(_actor, data[0].Id))
+        {
+            var school = data[0];
+            var form = Stack();
+            form.Children.Add(Label("تعديل مرحلة ونوع مدرستك فقط", 16, true));
+            form.Children.Add(Label("لا يمكنك تغيير رمز المدرسة أو اسمها أو موقعها أو بيانات أي مدرسة أخرى.", 13));
+            var stage = new ComboBox { Width = 180,
+                ItemsSource = new[] { "أساسي", "ثانوي", "مجمع تربوي" },
+                SelectedItem = school.Stage, HorizontalAlignment = HorizontalAlignment.Left };
+            var gender = new ComboBox { Width = 180,
+                ItemsSource = new[] { "ذكور", "إناث", "مختلطة" },
+                SelectedItem = school.Gender, HorizontalAlignment = HorizontalAlignment.Left };
+            form.Children.Add(Label("المرحلة", 13)); form.Children.Add(stage);
+            form.Children.Add(Label("نوع المدرسة", 13)); form.Children.Add(gender);
+            form.Children.Add(Btn("حفظ بيانات مدرستي", (_, _) => Safe(() =>
+            {
+                _store.UpdateOwnSchoolProfile(_actor, school.Id,
+                    stage.SelectedItem?.ToString() ?? "", gender.SelectedItem?.ToString() ?? "");
+                Info("تم تحديث نوع المدرسة والمرحلة."); ShowSchools();
+            })));
+            root.Children.Add(Box(form));
+        }
         Display("دليل المدارس", root);
+    }
+
+    private void ShowStaff()
+    {
+        if (!AccessPolicy.Has(_actor, PermissionFlags.ViewStaff))
+            throw new UnauthorizedAccessException("لا تملك صلاحية عرض كادر المدارس.");
+        var schools = _store.GetSchools(_actor).Where(s => s.IsActive).ToList();
+        var root = Stack();
+        root.Children.Add(Label("سجلات المعلمين والطاقم الإداري والأخصائيين الاجتماعيين", 18, true));
+        root.Children.Add(Label("كل حساب مدرسة يرى سجلات مدرسته فقط. أما مسؤولو المديرية فيرون المدارس وفقا لصلاحياتهم.", 13));
+        if (schools.Count == 0)
+        {
+            root.Children.Add(Label("لا توجد مدرسة نشطة متاحة لهذا الحساب."));
+            Display("كادر المدارس والسجلات", root);
+            return;
+        }
+
+        var schoolBox = new ComboBox
+        {
+            Width = 380, ItemsSource = schools, DisplayMemberPath = "Name",
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        root.Children.Add(Label("المدرسة", 14, true));
+        root.Children.Add(schoolBox);
+
+        var staffGrid = GridFor(Array.Empty<SchoolStaff>(),
+            ("الرقم الوظيفي", "EmployeeCode", false),
+            ("الاسم الكامل", "FullName", false),
+            ("الفئة", "Category", false),
+            ("المسمى", "JobTitle", false),
+            ("التخصص", "Specialization", false),
+            ("المؤهل", "Qualification", false),
+            ("الجنس", "Gender", false),
+            ("نشط", "IsActive", false));
+        staffGrid.MaxHeight = 370;
+        root.Children.Add(Box(staffGrid));
+
+        var editor = Stack();
+        editor.Children.Add(Label("إضافة موظف أو تعديل السجل المحدد", 16, true));
+        var employeeCode = Field(width: 155);
+        var fullName = Field(width: 270);
+        var job = Field(width: 190);
+        var specialization = Field(width: 190);
+        var qualification = Field(width: 190);
+        var category = new ComboBox
+        {
+            Width = 175, ItemsSource = new[] { "معلم", "إداري", "أخصائي اجتماعي" },
+            SelectedIndex = 0
+        };
+        var gender = new ComboBox
+        {
+            Width = 150, ItemsSource = new[] { "ذكور", "إناث", "غير محدد" },
+            SelectedIndex = 2
+        };
+        var active = new CheckBox { Content = "الموظف على رأس العمل",
+            IsChecked = true, Margin = new Thickness(6, 10, 6, 6) };
+
+        var fields = new WrapPanel();
+        foreach (var (title, control) in new (string, UIElement)[]
+        {
+            ("الرقم الوظيفي", employeeCode), ("الاسم الكامل", fullName),
+            ("الفئة", category), ("المسمى الوظيفي", job),
+            ("التخصص", specialization), ("المؤهل", qualification),
+            ("الجنس", gender)
+        })
+        {
+            var group = Stack();
+            group.Children.Add(Label(title, 13)); group.Children.Add(control);
+            group.Margin = new Thickness(3, 3, 3, 5);
+            fields.Children.Add(group);
+        }
+        editor.Children.Add(fields);
+        editor.Children.Add(active);
+        SchoolStaff? selected = null;
+
+        void Clear()
+        {
+            selected = null;
+            staffGrid.SelectedItem = null;
+            employeeCode.Text = ""; fullName.Text = ""; job.Text = "";
+            specialization.Text = ""; qualification.Text = "";
+            category.SelectedIndex = 0; gender.SelectedIndex = 2; active.IsChecked = true;
+        }
+
+        staffGrid.SelectionChanged += (_, _) =>
+        {
+            selected = staffGrid.SelectedItem as SchoolStaff;
+            if (selected is null) return;
+            employeeCode.Text = selected.EmployeeCode;
+            fullName.Text = selected.FullName;
+            category.SelectedItem = selected.Category;
+            job.Text = selected.JobTitle;
+            specialization.Text = selected.Specialization;
+            qualification.Text = selected.Qualification;
+            gender.SelectedItem = selected.Gender;
+            active.IsChecked = selected.IsActive;
+        };
+
+        void Refresh()
+        {
+            Clear();
+            if (schoolBox.SelectedItem is not School school) return;
+            staffGrid.ItemsSource = _store.GetSchoolStaff(_actor, school.Id);
+            editor.IsEnabled = AccessPolicy.CanEditStaff(_actor, school.Id);
+        }
+
+        schoolBox.SelectionChanged += (_, _) => Safe(Refresh);
+
+        var actions = new WrapPanel();
+        actions.Children.Add(Btn("سجل جديد", (_, _) => Clear()));
+        actions.Children.Add(Btn("حفظ الموظف", (_, _) => Safe(() =>
+        {
+            if (schoolBox.SelectedItem is not School school)
+                throw new InvalidOperationException("حدد المدرسة أولا.");
+            var staff = new SchoolStaff(selected?.Id ?? "", school.Id, employeeCode.Text,
+                fullName.Text, category.SelectedItem?.ToString() ?? "", job.Text,
+                specialization.Text, qualification.Text,
+                gender.SelectedItem?.ToString() ?? "غير محدد", active.IsChecked == true);
+            _store.SaveSchoolStaff(_actor, staff);
+            Info("تم حفظ سجل الموظف في المدرسة المحددة.");
+            Refresh();
+        })));
+        editor.Children.Add(actions);
+
+        var importPanel = Stack();
+        importPanel.Children.Add(Label("استيراد سجلات المدارس من Excel أو Word", 16, true));
+        importPanel.Children.Add(Label(
+            "يدعم الجداول المنظمة .xlsx و.docx. يجب أن يحتوي كل صف على رمز المدرسة والرقم الوظيفي والاسم والفئة؛ يتم التوجيه برمز المدرسة وليس بالتخمين من اسم الملف. السجلات الموجودة بالرقم نفسه سيتم تحديثها بعد التأكيد.", 13));
+        importPanel.Children.Add(Btn("اختيار ملف Excel أو Word واستيراد الكادر", async (_, _) =>
+        {
+            try
+            {
+                var file = new OpenFileDialog
+                {
+                    Filter = "Excel (*.xlsx)|*.xlsx|Word (*.docx)|*.docx",
+                    Title = "اختر جدول سجلات المعلمين والإداريين والأخصائيين"
+                };
+                if (file.ShowDialog() != true) return;
+                var rows = await Task.Run(() => SchoolStaffImportParser.Parse(file.FileName));
+                var groups = rows.GroupBy(x => x.SchoolCode.Trim(), StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.Key + ": " + g.Count().ToString(CultureInfo.InvariantCulture) + " سجل")
+                    .Take(10);
+                var message = "تم العثور على " + rows.Count + " سجلا ضمن المدارس التالية:" +
+                    Environment.NewLine + string.Join(Environment.NewLine, groups) +
+                    Environment.NewLine + Environment.NewLine +
+                    "سيتم إضافة السجلات الجديدة وتحديث البيانات المناظرة بالرقم الوظيفي. " +
+                    "أي رمز مدرسة غير صحيح سيوقف العملية كاملة. هل تعتمد الاستيراد؟";
+                if (MessageBox.Show(message, "مراجعة قبل الاستيراد",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                var imported = await Task.Run(() => _store.ImportStaffRecords(
+                    _actor, rows, Path.GetFileName(file.FileName)));
+                Info("تم تسجيل " + imported + " صفا في المدارس المطابقة دون استيراد جزئي.");
+                Refresh();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "تعذر استيراد سجلات المدرسة",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }));
+        schoolBox.SelectionChanged += (_, _) =>
+        {
+            if (schoolBox.SelectedItem is School school)
+                importPanel.IsEnabled = AccessPolicy.CanEditStaff(_actor, school.Id);
+        };
+        root.Children.Add(Box(importPanel));
+        root.Children.Add(Box(editor));
+        Display("كادر المدارس والسجلات", root);
+        schoolBox.SelectedIndex = 0;
     }
 
     private sealed class EnrollmentInput
@@ -281,12 +479,15 @@ public partial class MainWindow : Window
         root.Children.Add(Box(heading));
         var form = Stack();
         var status = Label("", 14, true); form.Children.Add(status);
+        var editable = AccessPolicy.Has(_actor, PermissionFlags.EditCensus);
         var lines = new ObservableCollection<EnrollmentInput>();
         var table = GridFor(lines, ("الصف", "Grade", false), ("ذكور", "Boys", true), ("إناث", "Girls", true));
+        table.IsReadOnly = !editable;
         table.MaxHeight = 440;
         form.Children.Add(table);
         var counts = new WrapPanel();
         var male = Field(width: 150); var female = Field(width: 150); var rooms = Field(width: 150);
+        male.IsReadOnly = !editable; female.IsReadOnly = !editable; rooms.IsReadOnly = !editable;
         foreach (var (title, control) in new (string, UIElement)[] {
             ("المعلمون الذكور", male), ("المعلمات", female), ("الفصول الدراسية", rooms) })
         {
@@ -295,10 +496,10 @@ public partial class MainWindow : Window
         form.Children.Add(counts);
         form.Children.Add(Label("ملاحظات المدرسة", 14));
         var notes = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
-            MinHeight = 65, MaxHeight = 125, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+            MinHeight = 65, MaxHeight = 125, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            IsReadOnly = !editable };
         form.Children.Add(notes);
         var actions = new WrapPanel();
-        var editable = AccessPolicy.Has(_actor, PermissionFlags.EditCensus);
         actions.Children.Add(Btn("حفظ المسودة", (_, _) => Safe(() =>
         {
             if (combo.SelectedItem is not School selected) return;
@@ -542,6 +743,24 @@ public partial class MainWindow : Window
 
         role.SelectionChanged += (_, _) => SetRoleDefaults();
         role.SelectedValue = Roles.Entry;
+
+        form.Children.Add(Label("إعداد حساب مدرسة جاهز — اختر المدرسة المطلوبة ثم نوع الصلاحية:", 15, true));
+        var presets = new WrapPanel();
+        presets.Children.Add(Btn("مستخدم مدرسة — مشاهدة فقط", (_, _) =>
+        {
+            if (selected is not null) { Info("اختر «حساب جديد» أولا لتطبيق هذا النموذج."); return; }
+            role.SelectedValue = Roles.Entry;
+            SetPermissions((long)(PermissionFlags.ViewSchools | PermissionFlags.ViewStaff | PermissionFlags.ViewReports));
+        }));
+        presets.Children.Add(Btn("مستخدم مدرسة — مشاهدة وتعديل وإضافة", (_, _) =>
+        {
+            if (selected is not null) { Info("اختر «حساب جديد» أولا لتطبيق هذا النموذج."); return; }
+            role.SelectedValue = Roles.Entry;
+            SetPermissions((long)(PermissionFlags.ViewSchools | PermissionFlags.ViewReports | PermissionFlags.EditCensus |
+                PermissionFlags.ViewStaff | PermissionFlags.ManageStaff | PermissionFlags.ManageSchoolProfile));
+        }));
+        form.Children.Add(presets);
+        form.Children.Add(Label("لإضافة مسؤول في إدارة التربية اختر «مدير النظام»، ثم امنحه صلاحياته التفصيلية. حسابات المدرسة لا ترى سوى المدرسة المرتبطة بها.", 13));
 
         grid.SelectionChanged += (_, _) =>
         {
