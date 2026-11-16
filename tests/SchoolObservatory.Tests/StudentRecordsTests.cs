@@ -150,6 +150,50 @@ public sealed class StudentRecordsTests
     }
 
     [Fact]
+    public void SchoolClassificationCannotContradictExistingStudentOrClass()
+    {
+        var (store, owner, boys, mixed, _) = Create();
+        store.AddSchoolGrade(owner, boys.Id, 3, "أ");
+        store.SaveStudent(owner, Student(boys, "C01", "عمر"));
+        Assert.Throws<InvalidOperationException>(() =>
+            store.UpdateSchool(owner, boys with { Gender = "إناث" }));
+        Assert.Throws<InvalidOperationException>(() =>
+            store.UpdateSchool(owner, boys with { Stage = "ثانوي" }));
+        store.AddSchoolGrade(owner, mixed.Id, 3, "أ");
+        store.SaveStudent(owner, Student(mixed, "C02", "منى", gender: "إناث"));
+        Assert.Throws<InvalidOperationException>(() =>
+            store.UpdateSchool(owner, mixed with { Gender = "ذكور" }));
+    }
+
+    [Fact]
+    public void CannotWriteNewYearResultsForStudentWithoutCurrentEnrollment()
+    {
+        var (store, owner, boys, _, path) = Create();
+        store.AddSchoolGrade(owner, boys.Id, 3, "أ");
+        store.SaveStudent(owner, Student(boys, "Y01", "سالم"));
+        var student = Assert.Single(store.GetStudents(owner, boys.Id));
+        store.SaveStudentResult(owner, boys.Id, student.Id, "الفصل الأول", "العربية", 90, 100, "");
+        using (var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = path }.ToString()))
+        {
+            connection.Open();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE settings SET value='2027/2028' WHERE key='academic_year'";
+            Assert.Equal(1, cmd.ExecuteNonQuery());
+        }
+        Assert.Single(store.GetStudentResults(owner, boys.Id, student.Id));
+        Assert.Empty(store.GetStudents(owner, boys.Id));
+        Assert.Throws<InvalidOperationException>(() =>
+            store.SaveStudentResult(owner, boys.Id, student.Id,
+                "الفصل الأول", "العلوم", 80, 100, ""));
+        Assert.Throws<InvalidOperationException>(() =>
+            store.AddStudentAssessment(owner, boys.Id, student.Id, "المشاركة", "ممتاز", ""));
+        Assert.Throws<InvalidOperationException>(() =>
+            store.RecordStudentAttendance(owner, boys.Id, student.Id,
+                new DateOnly(2027, 9, 3), "حاضر", ""));
+    }
+
+    [Fact]
     public void ExcelAndWordStudentTableParseWithArabicHeadersAndNoGenderColumn()
     {
         var xlsx = Path.Combine(Path.GetTempPath(), "students-" + Guid.NewGuid().ToString("N") + ".xlsx");
