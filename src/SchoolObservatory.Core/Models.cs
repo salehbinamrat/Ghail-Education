@@ -21,7 +21,8 @@ public static class Statuses
     public const string Returned = "returned";
 }
 
-public sealed record UserAccount(string Id, string Username, string Role, string? SchoolId, bool IsActive);
+public sealed record UserAccount(string Id, string Username, string Role, string? SchoolId,
+    bool IsActive, long PermissionMask = 0, bool IsOwner = false, long AuthVersion = 0);
 public sealed record School(string Id, string Code, string Name, string Zone, string Ownership, string Stage, bool IsActive);
 public sealed record EnrollmentLine(string Grade, int Boys, int Girls)
 {
@@ -41,29 +42,43 @@ public sealed record AuditItem(DateTimeOffset When, string Actor, string Action,
 
 public static class AccessPolicy
 {
+    public static bool Has(UserAccount actor, PermissionFlags permission) =>
+        actor.IsActive && (actor.IsOwner || (((PermissionFlags)actor.PermissionMask & permission) == permission));
+
     public static bool CanSeeSchool(UserAccount actor, string schoolId) =>
-        actor.IsActive && ((actor.Role is Roles.Admin or Roles.Statistician or Roles.Reviewer or Roles.Viewer) ||
-        actor.SchoolId == schoolId);
+        Has(actor, PermissionFlags.ViewSchools) &&
+        (actor.Role is Roles.Entry or Roles.Principal ? actor.SchoolId == schoolId : true);
 
-    public static bool CanEditSchool(UserAccount actor) => actor.IsActive &&
-        (actor.Role is Roles.Admin or Roles.Statistician);
+    public static bool CanEditSchool(UserAccount actor) =>
+        actor.Role is Roles.Admin or Roles.Statistician &&
+        Has(actor, PermissionFlags.ManageSchools);
 
-    public static bool CanEditCensus(UserAccount actor, string schoolId) => actor.IsActive &&
-        ((actor.Role is Roles.Admin or Roles.Statistician) ||
-         (actor.Role is Roles.Entry or Roles.Principal) && actor.SchoolId == schoolId);
+    public static bool CanEditCensus(UserAccount actor, string schoolId) =>
+        actor.Role is Roles.Admin or Roles.Statistician or Roles.Entry or Roles.Principal &&
+        Has(actor, PermissionFlags.EditCensus) &&
+        (actor.Role is Roles.Entry or Roles.Principal ? actor.SchoolId == schoolId : true);
 
-    public static bool CanCreateUsers(UserAccount actor) => actor.IsActive && actor.Role == Roles.Admin;
+    public static bool CanCreateUsers(UserAccount actor) =>
+        actor.Role == Roles.Admin && Has(actor, PermissionFlags.ManageUsers);
+
+    public static bool CanManageAccount(UserAccount actor, UserAccount target) =>
+        CanCreateUsers(actor) && actor.Id != target.Id && !target.IsOwner &&
+        (actor.IsOwner || (target.Role != Roles.Admin &&
+            (target.PermissionMask & ~actor.PermissionMask) == 0));
 
     public static bool CanPerform(UserAccount actor, string action, string schoolId, string status) =>
         actor.IsActive && (action switch
         {
             "submit" => status == Statuses.Draft && CanEditCensus(actor, schoolId),
             "school_approve" => status == Statuses.Submitted &&
-                actor.Role == Roles.Principal && actor.SchoolId == schoolId,
+                actor.Role == Roles.Principal && actor.SchoolId == schoolId &&
+                Has(actor, PermissionFlags.ApproveSchool),
             "district_approve" => status == Statuses.SchoolApproved &&
-                (actor.Role is Roles.Admin or Roles.Statistician),
+                actor.Role is Roles.Admin or Roles.Statistician &&
+                Has(actor, PermissionFlags.ApproveDistrict),
             "return" => (status is Statuses.Submitted or Statuses.SchoolApproved) &&
-                (actor.Role is Roles.Admin or Roles.Statistician or Roles.Reviewer),
+                actor.Role is Roles.Admin or Roles.Statistician or Roles.Reviewer &&
+                Has(actor, PermissionFlags.ReviewCensus),
             _ => false
         });
 }
