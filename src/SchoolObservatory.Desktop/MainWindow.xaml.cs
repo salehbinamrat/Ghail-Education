@@ -89,7 +89,7 @@ public partial class MainWindow : Window
     private static TextBox Field(string? value = null, double width = 200) => new()
     {
         Text = value ?? "", MinWidth = width, Width = width, HorizontalAlignment = HorizontalAlignment.Left,
-        VerticalAlignment = VerticalAlignment.Center
+        VerticalAlignment = VerticalAlignment.Center, MaxLength = 180, TextAlignment = TextAlignment.Right
     };
 
     private static Button Btn(string title, RoutedEventHandler click, bool allowed = true)
@@ -103,7 +103,7 @@ public partial class MainWindow : Window
     {
         Child = child, Padding = padding ?? new Thickness(17), Background = Brushes.White,
         CornerRadius = new CornerRadius(12), Margin = new Thickness(0, 0, 0, 16),
-        BorderBrush = new SolidColorBrush(Color.FromRgb(224, 232, 240)), BorderThickness = new Thickness(1)
+        BorderBrush = new SolidColorBrush(Color.FromRgb(184, 223, 233)), BorderThickness = new Thickness(1)
     };
 
     // Long Arabic school and personnel names must not be squeezed to equal-width narrow columns.
@@ -216,7 +216,8 @@ public partial class MainWindow : Window
                 ("رمز المدرسة",code),("اسم المدرسة",name),("المنطقة",zone),
                 ("الملكية",ownership),("نوع المدرسة",gender),("المرحلة",stage) })
             {
-                var group = Stack(); group.Children.Add(Label(title, 13)); group.Children.Add(control); fields.Children.Add(group);
+                var group = Stack(); group.Margin = new Thickness(4, 4, 10, 10);
+                group.Children.Add(Label(title, 13)); group.Children.Add(control); fields.Children.Add(group);
             }
             form.Children.Add(fields);
             form.Children.Add(active);
@@ -514,7 +515,8 @@ public partial class MainWindow : Window
         foreach (var (title, control) in new (string, UIElement)[] {
             ("المعلمون الذكور", male), ("المعلمات", female), ("الفصول الدراسية", rooms) })
         {
-            var group = Stack(); group.Children.Add(Label(title, 13)); group.Children.Add(control); counts.Children.Add(group);
+            var group = Stack(); group.Margin = new Thickness(4, 4, 10, 10);
+            group.Children.Add(Label(title, 13)); group.Children.Add(control); counts.Children.Add(group);
         }
         form.Children.Add(counts);
         form.Children.Add(Label("ملاحظات المدرسة", 14));
