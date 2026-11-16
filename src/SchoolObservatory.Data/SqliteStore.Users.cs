@@ -111,6 +111,8 @@ public sealed partial class SqliteStore
             if (!r.Read()) throw new ArgumentException("المستخدم غير موجود.");
             target = ReadAccount(r);
         }
+        if (target.IsOwner)
+            throw new InvalidOperationException("صلاحيات المسؤول المؤسس محمية ولا يمكن تعديلها من إدارة المستخدمين.");
         if (!AccessPolicy.CanManageAccount(actor, target))
             throw new UnauthorizedAccessException("لا يمكنك تغيير صلاحيات هذا المسؤول.");
         if (!PermissionCatalog.IsRoleAllowed(target.Role, permissionMask))
