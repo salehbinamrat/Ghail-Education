@@ -14,15 +14,17 @@ namespace SchoolObservatory.Desktop;
 
 public partial class MainWindow : Window
 {
+    public bool LogoutRequested { get; private set; }
     private readonly SqliteStore _store;
     private readonly UserAccount _actor;
-    private readonly Brush _primary = new SolidColorBrush(Color.FromRgb(21, 101, 192));
+    private readonly Brush _primary = new SolidColorBrush(Color.FromRgb(0, 148, 177));
     private readonly Brush _neutral = new SolidColorBrush(Color.FromRgb(236, 243, 251));
     private readonly Brush _muted = new SolidColorBrush(Color.FromRgb(89, 111, 139));
 
     public MainWindow(SqliteStore store, UserAccount actor)
     {
         InitializeComponent();
+        Loaded += (_, _) => WindowLayout.FitToWorkArea(this);
         _store = store;
         _actor = actor;
         AccountText.Text = $"{actor.Username}  |  {(actor.IsOwner ? "المسؤول المؤسس" : RoleName(actor.Role))}";
@@ -55,7 +57,7 @@ public partial class MainWindow : Window
     {
         var button = new Button
         {
-            Content = text, Background = new SolidColorBrush(Color.FromRgb(30, 77, 126)),
+            Content = text, Background = new SolidColorBrush(Color.FromRgb(9, 107, 151)),
             BorderThickness = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Right,
             Padding = new Thickness(14, 11, 14, 11), Margin = new Thickness(2, 3, 2, 3)
         };
@@ -133,7 +135,11 @@ public partial class MainWindow : Window
     }
 
     private static void Info(string text) => MessageBox.Show(text, "المرصد المدرسي", MessageBoxButton.OK, MessageBoxImage.Information);
-    private void Logout_Click(object sender, RoutedEventArgs e) => Close();
+    private void Logout_Click(object sender, RoutedEventArgs e)
+    {
+        LogoutRequested = true;
+        Close();
+    }
 
     private void ShowDashboard()
     {
