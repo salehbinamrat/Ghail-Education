@@ -50,10 +50,11 @@ public static class AccessPolicy
         (actor.Role is Roles.Entry or Roles.Principal ? actor.SchoolId == schoolId : true);
 
     public static bool CanEditSchool(UserAccount actor) =>
-        actor.Role is not (Roles.Entry or Roles.Principal) &&
+        actor.Role is Roles.Admin or Roles.Statistician &&
         Has(actor, PermissionFlags.ManageSchools);
 
     public static bool CanEditCensus(UserAccount actor, string schoolId) =>
+        actor.Role is Roles.Admin or Roles.Statistician or Roles.Entry or Roles.Principal &&
         Has(actor, PermissionFlags.EditCensus) &&
         (actor.Role is Roles.Entry or Roles.Principal ? actor.SchoolId == schoolId : true);
 
@@ -72,10 +73,10 @@ public static class AccessPolicy
                 actor.Role == Roles.Principal && actor.SchoolId == schoolId &&
                 Has(actor, PermissionFlags.ApproveSchool),
             "district_approve" => status == Statuses.SchoolApproved &&
-                actor.Role is not (Roles.Entry or Roles.Principal) &&
+                actor.Role is Roles.Admin or Roles.Statistician &&
                 Has(actor, PermissionFlags.ApproveDistrict),
             "return" => (status is Statuses.Submitted or Statuses.SchoolApproved) &&
-                actor.Role is not (Roles.Entry or Roles.Principal) &&
+                actor.Role is Roles.Admin or Roles.Statistician or Roles.Reviewer &&
                 Has(actor, PermissionFlags.ReviewCensus),
             _ => false
         });
