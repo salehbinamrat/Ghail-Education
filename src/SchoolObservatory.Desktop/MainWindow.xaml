@@ -13,7 +13,7 @@
         </StackPanel>
         <StackPanel DockPanel.Dock="Bottom">
           <TextBlock x:Name="AccountText" Foreground="#E1F9FF" TextWrapping="Wrap" Margin="12"/>
-          <Button Content="خروج" Click="Logout_Click" Background="#B3263E"/>
+          <Button Content="تسجيل خروج" Click="Logout_Click" Background="#B3263E"/>
         </StackPanel>
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <StackPanel x:Name="NavPanel"/>
