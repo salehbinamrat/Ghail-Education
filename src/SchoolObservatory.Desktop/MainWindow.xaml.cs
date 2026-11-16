@@ -114,7 +114,20 @@ public partial class MainWindow : Window
     private static Button Btn(string title, RoutedEventHandler click, bool allowed = true,
         string tone = "primary")
     {
-        var (background, foreground) = tone switch
+        // Distinguish save, approval, warning and destructive actions throughout the program.
+        var effectiveTone = tone != "primary" ? tone :
+            title.Contains("إيقاف", StringComparison.Ordinal) ||
+            title.Contains("إعادة تعيين", StringComparison.Ordinal) ? "danger" :
+            title.Contains("إرجاع", StringComparison.Ordinal) ||
+            title.Contains("رفع الإحصاء", StringComparison.Ordinal) ? "warning" :
+            title.Contains("اعتماد", StringComparison.Ordinal) ||
+            title.Contains("إقرار", StringComparison.Ordinal) ? "purple" :
+            title.Contains("حفظ", StringComparison.Ordinal) ||
+            title.Contains("إضافة", StringComparison.Ordinal) ||
+            title.Contains("إنشاء", StringComparison.Ordinal) ? "success" :
+            title.Contains("تصدير", StringComparison.Ordinal) ||
+            title.Contains("حساب جديد", StringComparison.Ordinal) ? "secondary" : "primary";
+        var (background, foreground) = effectiveTone switch
         {
             "success" => (Color.FromRgb(0, 132, 122), Colors.White),
             "secondary" => (Color.FromRgb(219, 241, 250), Color.FromRgb(12, 67, 102)),
