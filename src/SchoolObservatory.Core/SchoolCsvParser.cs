@@ -2,7 +2,8 @@ using System.Text;
 
 namespace SchoolObservatory.Core;
 
-public sealed record SchoolImport(string Code, string Name, string Zone, string Ownership, string Stage);
+public sealed record SchoolImport(string Code, string Name, string Zone, string Ownership, string Stage,
+    string Gender = "مختلطة");
 
 /// <summary>RFC-4180-like CSV reader for school-directory imports. Entire file is validated before writing.</summary>
 public static class SchoolCsvParser
@@ -26,17 +27,20 @@ public static class SchoolCsvParser
         var rows = ParseRows(csv.TrimStart('\uFEFF'));
         if (rows.Count == 0) throw new ArgumentException("الملف فارغ.");
         var header = rows[0].Select(s => s.Trim().ToLowerInvariant()).ToArray();
-        if (header.Length != RequiredHeaders.Length || !header.SequenceEqual(RequiredHeaders))
-            throw new ArgumentException("الحقول مطلوبة بهذا الترتيب: code,name,zone,ownership,stage");
+        if ((header.Length is not (5 or 6)) || !header.Take(5).SequenceEqual(RequiredHeaders) ||
+            (header.Length == 6 && header[5] != "gender"))
+            throw new ArgumentException("الحقول: code,name,zone,ownership,stage ثم gender اختياريا.");
         var imports = new List<SchoolImport>();
         var codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var line in rows.Skip(1))
         {
             if (line.Count == 1 && line[0].Length == 0) continue;
-            if (line.Count != 5) throw new ArgumentException("عدد الأعمدة غير صحيح في صف الاستيراد.");
-            var import = new SchoolImport(line[0].Trim(), line[1].Trim(), line[2].Trim(), line[3].Trim(), line[4].Trim());
+            if (line.Count != header.Length) throw new ArgumentException("عدد الأعمدة غير صحيح في صف الاستيراد.");
+            var import = new SchoolImport(line[0].Trim(), line[1].Trim(), line[2].Trim(), line[3].Trim(), line[4].Trim(),
+                header.Length == 6 ? line[5].Trim() : "مختلطة");
             if (import.Code.Length == 0 || import.Name.Length == 0 || import.Zone.Length == 0 ||
-                import.Stage.Length == 0 || import.Ownership is not ("حكومية" or "أهلية"))
+                import.Stage.Length == 0 || import.Ownership is not ("حكومية" or "أهلية") ||
+                import.Gender is not ("ذكور" or "إناث" or "مختلطة"))
                 throw new ArgumentException($"توجد قيم ناقصة أو غير صحيحة عند المدرسة {import.Code}.");
             if (!codes.Add(import.Code)) throw new ArgumentException($"رمز مدرسة مكرر داخل الملف: {import.Code}");
             imports.Add(import);
