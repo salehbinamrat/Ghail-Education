@@ -149,17 +149,29 @@ public partial class MainWindow
                 selectedSchool.Gender == "مختلطة" ? -1 : 0;
         }
 
-        void RefreshRoster()
+        IReadOnlyList<SchoolStudent> rosterCache = Array.Empty<SchoolStudent>();
+        string? cachedSchoolId = null;
+        string? cachedGradeId = null;
+        void RefreshRoster(bool reload = true)
         {
             var selectedSchool = schoolPicker.SelectedItem as School;
             var selectedGrade = gradePicker.SelectedItem as SchoolGrade;
             if (selectedSchool is null)
             {
                 roster.ItemsSource = Array.Empty<StudentRosterItem>();
+                rosterCache = Array.Empty<SchoolStudent>();
+                cachedSchoolId = null;
+                cachedGradeId = null;
                 selectedCount.Text = "عدد الطلاب في الكشف: 0";
                 return;
             }
-            var students = _store.GetStudents(_actor, selectedSchool.Id, selectedGrade?.Id);
+            if (reload || cachedSchoolId != selectedSchool.Id || cachedGradeId != selectedGrade?.Id)
+            {
+                rosterCache = _store.GetStudents(_actor, selectedSchool.Id, selectedGrade?.Id);
+                cachedSchoolId = selectedSchool.Id;
+                cachedGradeId = selectedGrade?.Id;
+            }
+            var students = rosterCache;
             var filter = search.Text.Trim();
             var visible = students.Where(s => filter.Length == 0 ||
                 s.FullName.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
@@ -213,7 +225,7 @@ public partial class MainWindow
             ResetEditor();
             RefreshRoster();
         }
-        search.TextChanged += (_, _) => Safe(RefreshRoster);
+        search.TextChanged += (_, _) => Safe(() => RefreshRoster(false));
         schoolPicker.SelectionChanged += (_, _) => Safe(() => { search.Clear(); RefillGrades(); });
         gradePicker.SelectionChanged += (_, _) => Safe(() =>
         {
