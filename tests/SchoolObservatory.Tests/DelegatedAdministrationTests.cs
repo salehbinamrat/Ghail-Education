@@ -96,8 +96,46 @@ public sealed class DelegatedAdministrationTests
             (long)(PermissionFlags.ViewSchools | PermissionFlags.ReviewCensus));
         var target = Assert.IsType<UserAccount>(db.Authenticate("account9", "Strong-Original-123!"));
         db.ResetUserPassword(owner, target.Id, "Strong-Replacement-456!");
+        Assert.Throws<UnauthorizedAccessException>(() => db.GetSchools(target));
         Assert.Null(db.Authenticate("account9", "Strong-Original-123!"));
         Assert.NotNull(db.Authenticate("account9", "Strong-Replacement-456!"));
         Assert.Contains(db.GetRecentAudit(owner), a => a.Action == "user.password_reset");
     }
+    [Fact]
+    public void ExistingLegacyAdministratorIsMigratedToProtectedOwnerWithoutLosingCredentials()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "school-legacy-" + Guid.NewGuid().ToString("N") + ".db");
+        using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE users (
+                  id TEXT PRIMARY KEY, username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                  password_hash TEXT NOT NULL, role TEXT NOT NULL, school_id TEXT NULL,
+                  is_active INTEGER NOT NULL DEFAULT 1, failed_attempts INTEGER NOT NULL DEFAULT 0,
+                  lock_until_utc TEXT NULL, created_utc TEXT NOT NULL
+                );
+                """;
+            command.ExecuteNonQuery();
+            using var insert = connection.CreateCommand();
+            insert.CommandText = """
+                INSERT INTO users(id,username,password_hash,role,school_id,created_utc)
+                VALUES('legacy-founder','legacyroot',$password,'admin',NULL,'2026-10-01T10:00:00Z');
+                """;
+            insert.Parameters.AddWithValue("$password", PasswordService.Hash("Strong-Legacy-Password-123!"));
+            insert.ExecuteNonQuery();
+        }
+
+        var db = new SqliteStore(path);
+        db.Initialize();
+        db.Initialize();
+        var legacy = Assert.IsType<UserAccount>(db.Authenticate("legacyroot", "Strong-Legacy-Password-123!"));
+        Assert.True(legacy.IsOwner);
+        Assert.True(AccessPolicy.CanCreateUsers(legacy));
+        Assert.Equal("legacy-founder", legacy.Id);
+        Assert.Throws<InvalidOperationException>(() =>
+            db.InitializeAdministrator("المديرية", "2026/2027", "newowner", "Strong-New-Password-123!"));
+    }
+
 }
