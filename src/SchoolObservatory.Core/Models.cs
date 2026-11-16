@@ -68,11 +68,11 @@ public static class AccessPolicy
 
     public static bool CanEditStaff(UserAccount actor, string schoolId) =>
         CanSeeSchool(actor, schoolId) && Has(actor, PermissionFlags.ManageStaff) &&
-        actor.Role is Roles.Admin or Roles.Statistician or Roles.Principal or Roles.Entry;
+         (actor.Role is Roles.Admin or Roles.Statistician or Roles.Principal or Roles.Entry);
 
     public static bool CanEditSchoolProfile(UserAccount actor, string schoolId) =>
         CanSeeSchool(actor, schoolId) && Has(actor, PermissionFlags.ManageSchoolProfile) &&
-        actor.Role is Roles.Admin or Roles.Statistician or Roles.Principal or Roles.Entry;
+         (actor.Role is Roles.Admin or Roles.Statistician or Roles.Principal or Roles.Entry);
 
     public static bool CanCreateUsers(UserAccount actor) =>
         actor.Role == Roles.Admin && Has(actor, PermissionFlags.ManageUsers);
