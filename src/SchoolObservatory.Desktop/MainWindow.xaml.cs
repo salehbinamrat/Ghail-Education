@@ -479,12 +479,15 @@ public partial class MainWindow : Window
         root.Children.Add(Box(heading));
         var form = Stack();
         var status = Label("", 14, true); form.Children.Add(status);
+        var editable = AccessPolicy.Has(_actor, PermissionFlags.EditCensus);
         var lines = new ObservableCollection<EnrollmentInput>();
         var table = GridFor(lines, ("الصف", "Grade", false), ("ذكور", "Boys", true), ("إناث", "Girls", true));
+        table.IsReadOnly = !editable;
         table.MaxHeight = 440;
         form.Children.Add(table);
         var counts = new WrapPanel();
         var male = Field(width: 150); var female = Field(width: 150); var rooms = Field(width: 150);
+        male.IsReadOnly = !editable; female.IsReadOnly = !editable; rooms.IsReadOnly = !editable;
         foreach (var (title, control) in new (string, UIElement)[] {
             ("المعلمون الذكور", male), ("المعلمات", female), ("الفصول الدراسية", rooms) })
         {
@@ -493,10 +496,10 @@ public partial class MainWindow : Window
         form.Children.Add(counts);
         form.Children.Add(Label("ملاحظات المدرسة", 14));
         var notes = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
-            MinHeight = 65, MaxHeight = 125, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+            MinHeight = 65, MaxHeight = 125, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            IsReadOnly = !editable };
         form.Children.Add(notes);
         var actions = new WrapPanel();
-        var editable = AccessPolicy.Has(_actor, PermissionFlags.EditCensus);
         actions.Children.Add(Btn("حفظ المسودة", (_, _) => Safe(() =>
         {
             if (combo.SelectedItem is not School selected) return;
