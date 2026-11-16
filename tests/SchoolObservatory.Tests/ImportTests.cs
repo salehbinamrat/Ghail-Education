@@ -22,6 +22,23 @@ public sealed class ImportTests
             "1,الثانية,جنوب,حكومية,ثانوي\n"));
     }
 
+    [Fact]
+    public void InvalidUtf8CannotSilentlyCorruptArabicSchoolNames()
+    {
+        // An invalid UTF-8 continuation must be rejected instead of producing replacement glyphs.
+        var bad = new byte[] { (byte)'c', (byte)'o', (byte)'d', (byte)'e', (byte)',', 0xC3, 0x28 };
+        Assert.Throws<System.Text.DecoderFallbackException>(() => SchoolCsvParser.ParseUtf8(bad));
+    }
+
+    [Fact]
+    public void ValidUtf8SchoolNamesAndBomRemainSupported()
+    {
+        var csv = "code,name,zone,ownership,stage\\n1,مدرسة العليب,العليب,حكومية,أساسي\\n";
+        var bytes = new byte[] { 0xEF, 0xBB, 0xBF }
+            .Concat(System.Text.Encoding.UTF8.GetBytes(csv)).ToArray();
+        Assert.Equal("مدرسة العليب", Assert.Single(SchoolCsvParser.ParseUtf8(bytes)).Name);
+    }
+
     [Fact] public void SchoolStageMismatchesCannotBeSaved()
     {
         var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), Guid.NewGuid() + ".db");
