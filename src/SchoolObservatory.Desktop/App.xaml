@@ -3,9 +3,11 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnExplicitShutdown">
   <Application.Resources>
-    <SolidColorBrush x:Key="PrimaryBrush" Color="#1565C0"/>
-    <SolidColorBrush x:Key="BackgroundBrush" Color="#F4F7FB"/>
-    <SolidColorBrush x:Key="TextBrush" Color="#1C2C42"/>
+    <SolidColorBrush x:Key="PrimaryBrush" Color="#008DB3"/>
+    <SolidColorBrush x:Key="BackgroundBrush" Color="#EAF8FC"/>
+    <SolidColorBrush x:Key="TextBrush" Color="#133A56"/>
+    <SolidColorBrush x:Key="TurquoiseBrush" Color="#00AFC0"/>
+    <SolidColorBrush x:Key="DeepBlueBrush" Color="#086AA3"/>
     <Style TargetType="TextBlock">
       <Setter Property="FontFamily" Value="Segoe UI"/>
       <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
@@ -16,6 +18,8 @@
       <Setter Property="Margin" Value="4"/>
       <Setter Property="Padding" Value="8"/>
       <Setter Property="MinHeight" Value="36"/>
+      <Setter Property="BorderBrush" Value="#9ACBD9"/>
+      <Setter Property="Foreground" Value="#133A56"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
     </Style>
     <Style TargetType="PasswordBox">
