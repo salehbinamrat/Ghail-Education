@@ -111,6 +111,7 @@ public sealed class SqliteStore
               details TEXT NOT NULL, created_utc TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS ix_submissions_school_round ON submissions(school_id, round_id, revision DESC);
+            CREATE INDEX IF NOT EXISTS ix_submissions_round_school_revision ON submissions(round_id, school_id, revision DESC);
             CREATE INDEX IF NOT EXISTS ix_submissions_round_status ON submissions(round_id, status);
             CREATE INDEX IF NOT EXISTS ix_audit_date ON audit_events(created_utc DESC);
             """);
@@ -307,15 +308,26 @@ public sealed class SqliteStore
         foreach (var row in rows) CheckSchoolInput(row.Code, row.Name, row.Zone, row.Ownership, row.Stage);
         using var con = Open();
         using var tx = con.BeginTransaction();
+
+        // Prepare a single statement for the complete atomic batch rather than 1 command per school.
+        using var insert = Cmd(con, tx,
+            "INSERT INTO schools(id,code,name,zone,ownership,stage,created_utc) VALUES($id,$c,$n,$z,$o,$s,$at)",
+            ("$id", ""), ("$c", ""), ("$n", ""), ("$z", ""),
+            ("$o", ""), ("$s", ""), ("$at", ""));
+        insert.Prepare();
+        var createdAt = Utc();
         foreach (var row in rows)
         {
-            var id = Id();
-            using var cmd = Cmd(con, tx,
-                "INSERT INTO schools(id,code,name,zone,ownership,stage,created_utc) VALUES($id,$c,$n,$z,$o,$s,$at)",
-                ("$id", id), ("$c", row.Code.Trim()), ("$n", row.Name.Trim()), ("$z", row.Zone.Trim()),
-                ("$o", row.Ownership), ("$s", row.Stage.Trim()), ("$at", Utc()));
-            cmd.ExecuteNonQuery();
+            insert.Parameters["$id"].Value = Id();
+            insert.Parameters["$c"].Value = row.Code.Trim();
+            insert.Parameters["$n"].Value = row.Name.Trim();
+            insert.Parameters["$z"].Value = row.Zone.Trim();
+            insert.Parameters["$o"].Value = row.Ownership;
+            insert.Parameters["$s"].Value = row.Stage.Trim();
+            insert.Parameters["$at"].Value = createdAt;
+            insert.ExecuteNonQuery();
         }
+
         Audit(con, tx, actor.Id, "school.import", "schools", $"count={rows.Count}");
         tx.Commit();
         return rows.Count;
@@ -391,15 +403,46 @@ public sealed class SqliteStore
         if (!actor.IsActive || !Roles.All.Contains(actor.Role)) throw new UnauthorizedAccessException();
         using var con = Open();
         using var cmd = Cmd(con, null, """
-            SELECT s.id FROM submissions s
-            WHERE s.round_id=$r AND s.revision=(SELECT MAX(t.revision) FROM submissions t WHERE t.school_id=s.school_id AND t.round_id=s.round_id)
-            AND ($scope IS NULL OR s.school_id=$scope)
-            ORDER BY s.school_id
+            WITH most_recent AS (
+                SELECT school_id, MAX(revision) AS revision
+                FROM submissions WHERE round_id=$r GROUP BY school_id
+            )
+            SELECT s.id,s.school_id,school.name,round.academic_year,s.revision,s.status,
+                   s.male_teachers,s.female_teachers,s.classrooms,s.notes,s.decision_reason,s.created_utc,
+                   e.grade,e.boys,e.girls
+            FROM most_recent recent
+            JOIN submissions s ON s.school_id=recent.school_id
+                 AND s.revision=recent.revision AND s.round_id=$r
+            JOIN schools school ON school.id=s.school_id
+            JOIN census_rounds round ON round.id=s.round_id
+            LEFT JOIN enrollment_rows e ON e.submission_id=s.id
+            WHERE ($scope IS NULL OR s.school_id=$scope)
+            ORDER BY s.school_id, CAST(e.grade AS INTEGER)
             """, ("$r", CurrentRoundId(con, null)),
                 ("$scope", actor.Role is Roles.Entry or Roles.Principal ? actor.SchoolId ?? "" : null));
-        var ids = new List<string>();
-        using (var r = cmd.ExecuteReader()) while (r.Read()) ids.Add(Text(r, 0));
-        return ids.Select(id => ReadSubmission(con, id)).ToArray();
+        using var reader = cmd.ExecuteReader();
+        var submissions = new List<CensusSubmission>();
+        List<EnrollmentLine>? lines = null;
+        string? previousId = null;
+        while (reader.Read())
+        {
+            var id = Text(reader, 0);
+            if (id != previousId)
+            {
+                lines = new List<EnrollmentLine>();
+                submissions.Add(new CensusSubmission(
+                    id, Text(reader, 1), Text(reader, 2), Text(reader, 3),
+                    reader.GetInt32(4), Text(reader, 5),
+                    new CensusData(lines, reader.GetInt32(6), reader.GetInt32(7),
+                        reader.GetInt32(8), Text(reader, 9)),
+                    NullableText(reader, 10),
+                    DateTimeOffset.Parse(Text(reader, 11), CultureInfo.InvariantCulture)));
+                previousId = id;
+            }
+            if (!reader.IsDBNull(12))
+                lines!.Add(new EnrollmentLine(Text(reader, 12), reader.GetInt32(13), reader.GetInt32(14)));
+        }
+        return submissions;
     }
 
     public void SaveDraft(UserAccount actor, string schoolId, CensusData data)
@@ -514,13 +557,43 @@ public sealed class SqliteStore
 
     public DashboardStats GetDashboard(UserAccount actor)
     {
-        var schools = GetSchools(actor);
-        var reports = GetLatestSubmissions(actor);
-        var approved = reports.Where(s => s.Status == Statuses.Approved).ToList();
-        return new DashboardStats(schools.Count(s => s.IsActive),
-            reports.Count(s => s.Status is Statuses.Submitted or Statuses.SchoolApproved),
-            approved.Count, approved.Sum(s => s.Data.Students),
-            approved.Sum(s => s.Data.Teachers), approved.Sum(s => s.Data.Classrooms));
+        if (!actor.IsActive || !Roles.All.Contains(actor.Role)) throw new UnauthorizedAccessException();
+        using var con = Open();
+        using var cmd = Cmd(con, null, """
+            WITH most_recent AS (
+                SELECT school_id, MAX(revision) AS revision
+                FROM submissions WHERE round_id=$r GROUP BY school_id
+            ),
+            latest AS (
+                SELECT s.id,s.school_id,s.status,s.male_teachers,s.female_teachers,s.classrooms
+                FROM most_recent recent
+                JOIN submissions s ON s.school_id=recent.school_id
+                     AND s.revision=recent.revision AND s.round_id=$r
+                WHERE ($scope IS NULL OR s.school_id=$scope)
+            ),
+            approved_enrollment AS (
+                SELECT e.submission_id, SUM(e.boys + e.girls) AS students
+                FROM enrollment_rows e
+                JOIN latest l ON l.id=e.submission_id
+                WHERE l.status='approved'
+                GROUP BY e.submission_id
+            )
+            SELECT (SELECT COUNT(*) FROM schools WHERE is_active=1
+                    AND ($scope IS NULL OR id=$scope)),
+                   COALESCE(SUM(CASE WHEN l.status IN ('submitted','school_approved') THEN 1 ELSE 0 END),0),
+                   COALESCE(SUM(CASE WHEN l.status='approved' THEN 1 ELSE 0 END),0),
+                   COALESCE(SUM(CASE WHEN l.status='approved' THEN COALESCE(e.students,0) ELSE 0 END),0),
+                   COALESCE(SUM(CASE WHEN l.status='approved' THEN l.male_teachers+l.female_teachers ELSE 0 END),0),
+                   COALESCE(SUM(CASE WHEN l.status='approved' THEN l.classrooms ELSE 0 END),0)
+            FROM latest l LEFT JOIN approved_enrollment e ON e.submission_id=l.id
+            """, ("$r", CurrentRoundId(con, null)),
+                ("$scope", actor.Role is Roles.Entry or Roles.Principal ? actor.SchoolId ?? "" : null));
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read()) throw new InvalidOperationException("تعذر حساب المؤشرات.");
+        return new DashboardStats(
+            checked((int)reader.GetInt64(0)), checked((int)reader.GetInt64(1)),
+            checked((int)reader.GetInt64(2)), checked((int)reader.GetInt64(3)),
+            checked((int)reader.GetInt64(4)), checked((int)reader.GetInt64(5)));
     }
 
     public IReadOnlyList<AuditItem> GetRecentAudit(UserAccount actor, int limit = 100)
