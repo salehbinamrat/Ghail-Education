@@ -24,7 +24,8 @@ public sealed class CoreTests
 
     [Fact] public void SchoolEntryCannotApproveDistrictData()
     {
-        var entry = new UserAccount("u", "data", Roles.Entry, "a", true);
+        var entry = new UserAccount("u", "data", Roles.Entry, "a", true,
+            (long)PermissionCatalog.DefaultForRole(Roles.Entry));
         Assert.False(AccessPolicy.CanPerform(entry, "district_approve", "a", Statuses.SchoolApproved));
         Assert.False(AccessPolicy.CanEditCensus(entry, "b"));
         Assert.True(AccessPolicy.CanEditCensus(entry, "a"));
@@ -32,7 +33,8 @@ public sealed class CoreTests
 
     [Fact] public void ApprovalRequiresSchoolReview()
     {
-        var district = new UserAccount("u", "admin", Roles.Statistician, null, true);
+        var district = new UserAccount("u", "admin", Roles.Statistician, null, true,
+            (long)PermissionCatalog.DefaultForRole(Roles.Statistician));
         Assert.False(AccessPolicy.CanPerform(district, "district_approve", "s", Statuses.Submitted));
         Assert.True(AccessPolicy.CanPerform(district, "district_approve", "s", Statuses.SchoolApproved));
     }
