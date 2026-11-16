@@ -25,15 +25,15 @@ public partial class MainWindow : Window
         InitializeComponent();
         _store = store;
         _actor = actor;
-        AccountText.Text = $"{actor.Username}  |  {RoleName(actor.Role)}";
+        AccountText.Text = $"{actor.Username}  |  {(actor.IsOwner ? "المسؤول المؤسس" : RoleName(actor.Role))}";
         YearText.Text = $"العام الدراسي: {store.AcademicYear}";
         AddNav("لوحة التحكم", ShowDashboard);
         AddNav("دليل المدارس", ShowSchools);
-        AddNav("إحصاء الطلاب والمعلمين", ShowCensus);
-        AddNav("مراجعة واعتماد الإحصاء", ShowReviews);
-        AddNav("التقارير والتصدير", ShowReports);
+        if (AccessPolicy.Has(actor, PermissionFlags.EditCensus) || AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("إحصاء الطلاب والمعلمين", ShowCensus);
+        if (AccessPolicy.Has(actor, PermissionFlags.ApproveSchool) || AccessPolicy.Has(actor, PermissionFlags.ApproveDistrict) || AccessPolicy.Has(actor, PermissionFlags.ReviewCensus)) AddNav("مراجعة واعتماد الإحصاء", ShowReviews);
+        if (AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("التقارير والتصدير", ShowReports);
         if (AccessPolicy.CanCreateUsers(actor)) AddNav("إدارة المستخدمين", ShowUsers);
-        if (actor.Role is Roles.Admin or Roles.Statistician or Roles.Reviewer) AddNav("سجل العمليات", ShowAudit);
+        if (AccessPolicy.Has(actor, PermissionFlags.ViewAudit)) AddNav("سجل العمليات", ShowAudit);
         ShowDashboard();
     }
 
@@ -396,6 +396,7 @@ public partial class MainWindow : Window
 
     private void ShowReports()
     {
+        if (!AccessPolicy.Has(_actor, PermissionFlags.ViewReports)) throw new UnauthorizedAccessException();
         var root = Stack();
         var approved = _store.GetLatestSubmissions(_actor).Where(x => x.Status == Statuses.Approved).ToList();
         root.Children.Add(Label($"الاستمارات المعتمدة: {approved.Count} — العام { _store.AcademicYear }", 16, true));
@@ -426,38 +427,178 @@ public partial class MainWindow : Window
         Display("التقارير والتصدير", root);
     }
 
+    private sealed record RoleOption(string Code, string Label);
+
     private void ShowUsers()
     {
         if (!AccessPolicy.CanCreateUsers(_actor)) throw new UnauthorizedAccessException();
         var root = Stack();
+        root.Children.Add(Label("إدارة المسؤولين والمستخدمين — الصلاحيات المحددة لكل حساب", 18, true));
+        root.Children.Add(Label("المسؤول المؤسس محمي ولا يمكن إيقافه أو تغيير صلاحياته. المسؤولون المفوضون لا يستطيعون إنشاء مسؤولين آخرين أو منح صلاحيات أكبر من صلاحياتهم.", 13));
+
         var users = _store.GetUsers(_actor);
-        root.Children.Add(Box(GridFor(users, ("اسم المستخدم", "Username", false),
-            ("الصلاحية", "Role", false), ("المدرسة (معرف)", "SchoolId", false), ("نشط", "IsActive", false))));
+        var grid = GridFor(users,
+            ("الحساب", "Username", false), ("الدور", "Role", false),
+            ("المدرسة", "SchoolId", false), ("المسؤول المؤسس", "IsOwner", false),
+            ("نشط", "IsActive", false));
+        root.Children.Add(Box(grid));
+
         var form = Stack();
-        form.Children.Add(Label("إضافة مستخدم ومنحه صلاحية محددة", 16, true));
-        var username = Field(width: 250);
-        var password = new PasswordBox { Width = 250, HorizontalAlignment = HorizontalAlignment.Left };
-        var role = new ComboBox { Width = 250, ItemsSource = Roles.All.OrderBy(x => x).ToArray(), SelectedItem = Roles.Entry };
-        var school = new ComboBox { Width = 360, ItemsSource = _store.GetSchools(_actor).Where(x => x.IsActive).ToArray(),
-            DisplayMemberPath = "Name", HorizontalAlignment = HorizontalAlignment.Left };
-        foreach (var (title, control) in new (string, UIElement)[] {
-            ("اسم المستخدم بالإنجليزية",username),("كلمة المرور",password),("الدور",role),
-            ("المدرسة (مطلوبة لمدير المدرسة ومدخل البيانات فقط)",school) })
+        form.Children.Add(Label("إضافة حساب جديد أو تحديد حساب من الجدول لتعديل صلاحياته", 16, true));
+        var username = Field(width: 280);
+        var password = new PasswordBox { Width = 280, HorizontalAlignment = HorizontalAlignment.Left };
+        var confirm = new PasswordBox { Width = 280, HorizontalAlignment = HorizontalAlignment.Left };
+        var roleItems = Roles.All.OrderBy(x => RoleName(x)).Select(x => new RoleOption(x, RoleName(x))).ToArray();
+        var role = new ComboBox { Width = 260, ItemsSource = roleItems,
+            DisplayMemberPath = "Label", SelectedValuePath = "Code",
+            HorizontalAlignment = HorizontalAlignment.Left };
+        var school = new ComboBox
         {
-            form.Children.Add(Label(title, 13)); form.Children.Add(control);
+            Width = 350, ItemsSource = _store.GetSchools(_actor).Where(x => x.IsActive).ToArray(),
+            DisplayMemberPath = "Name", HorizontalAlignment = HorizontalAlignment.Left
+        };
+
+        foreach (var (title, control) in new (string, UIElement)[]
+        {
+            ("اسم المستخدم (3–64 حرفا أو رقما إنجليزيا)", username),
+            ("كلمة المرور الجديدة (12 حرفا على الأقل وحروف وأرقام)", password),
+            ("تأكيد كلمة المرور", confirm),
+            ("نوع الحساب", role),
+            ("المدرسة لمدير المدرسة ومدخل البيانات فقط", school)
+        })
+        {
+            form.Children.Add(Label(title, 13));
+            form.Children.Add(control);
         }
-        form.Children.Add(Btn("حفظ المستخدم", (_, _) => Safe(() =>
+
+        form.Children.Add(Label("الصلاحيات التفصيلية", 16, true));
+        var permissionPanel = new WrapPanel { Margin = new Thickness(0, 8, 0, 12) };
+        var checks = PermissionCatalog.Choices.Select(option =>
         {
+            var checkbox = new CheckBox
+            {
+                Content = option.Name,
+                Tag = option.Flag,
+                MinWidth = 260,
+                Margin = new Thickness(8),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            permissionPanel.Children.Add(checkbox);
+            return checkbox;
+        }).ToArray();
+        form.Children.Add(permissionPanel);
+
+        var state = Label("الوضع: إضافة حساب جديد", 13);
+        form.Children.Add(state);
+        UserAccount? selected = null;
+
+        long SelectedPermissions()
+        {
+            long mask = 0;
+            foreach (var check in checks)
+                if (check.IsChecked == true)
+                    mask |= (long)(PermissionFlags)check.Tag;
+            return mask;
+        }
+
+        void SetPermissions(long mask)
+        {
+            foreach (var check in checks)
+                check.IsChecked = (mask & (long)(PermissionFlags)check.Tag) != 0;
+        }
+
+        void SetRoleDefaults()
+        {
+            var currentRole = role.SelectedValue?.ToString();
+            if (currentRole is null) return;
+            school.IsEnabled = currentRole is Roles.Principal or Roles.Entry;
+            if (!school.IsEnabled) school.SelectedIndex = -1;
+            SetPermissions((long)PermissionCatalog.DefaultForRole(currentRole));
+        }
+
+        role.SelectionChanged += (_, _) => SetRoleDefaults();
+        role.SelectedValue = Roles.Entry;
+
+        grid.SelectionChanged += (_, _) =>
+        {
+            selected = grid.SelectedItem as UserAccount;
+            if (selected is null) return;
+            username.Text = selected.Username;
+            username.IsReadOnly = true;
+            role.SelectedValue = selected.Role;
+            role.IsEnabled = false;
+            school.SelectedItem = _store.GetSchools(_actor).FirstOrDefault(x => x.Id == selected.SchoolId);
+            school.IsEnabled = false;
+            SetPermissions(selected.PermissionMask);
+            password.Clear();
+            confirm.Clear();
+            state.Text = selected.IsOwner
+                ? "الحساب المؤسس محمي. لإضافة حساب جديد استخدم زر حساب جديد."
+                : $"تعديل الحساب: {selected.Username} — التغييرات في الصلاحيات تتطلب تسجيل دخوله مجددا.";
+        };
+
+        void NewUser()
+        {
+            grid.SelectedItem = null;
+            selected = null;
+            username.IsReadOnly = false;
+            username.Clear();
+            password.Clear();
+            confirm.Clear();
+            role.IsEnabled = true;
+            role.SelectedValue = Roles.Entry;
+            school.SelectedItem = null;
+            SetRoleDefaults();
+            state.Text = "الوضع: إضافة حساب جديد";
+        }
+
+        var buttons = new WrapPanel();
+        buttons.Children.Add(Btn("حساب جديد", (_, _) => NewUser()));
+        buttons.Children.Add(Btn("إنشاء الحساب", (_, _) => Safe(() =>
+        {
+            if (selected is not null)
+                throw new InvalidOperationException("اختر حساب جديد قبل الإضافة.");
+            if (password.Password != confirm.Password)
+                throw new ArgumentException("كلمتا المرور غير متطابقتين.");
             _store.CreateUser(_actor, username.Text, password.Password,
-                role.SelectedItem?.ToString() ?? "", (school.SelectedItem as School)?.Id);
-            Info("تم إنشاء المستخدم."); ShowUsers();
+                role.SelectedValue?.ToString() ?? "", (school.SelectedItem as School)?.Id,
+                SelectedPermissions());
+            Info("تم إنشاء الحساب بصلاحياته المحددة."); ShowUsers();
         })));
+        buttons.Children.Add(Btn("حفظ الصلاحيات المحددة", (_, _) => Safe(() =>
+        {
+            if (selected is null) throw new InvalidOperationException("حدد حسابا من الجدول.");
+            _store.UpdateUserPermissions(_actor, selected.Id, SelectedPermissions());
+            Info("تم تحديث الصلاحيات. يجب على المستخدم تسجيل الدخول مجددا."); ShowUsers();
+        })));
+        buttons.Children.Add(Btn("إيقاف أو تفعيل الحساب", (_, _) => Safe(() =>
+        {
+            if (selected is null) throw new InvalidOperationException("حدد حسابا من الجدول.");
+            var activate = !selected.IsActive;
+            var answer = MessageBox.Show(
+                activate ? "هل تريد تفعيل الحساب المحدد؟" : "هل تريد إيقاف حساب المستخدم المحدد؟",
+                "تأكيد إدارة الحساب", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (answer != MessageBoxResult.Yes) return;
+            _store.SetUserActive(_actor, selected.Id, activate);
+            Info(activate ? "تم تفعيل الحساب." : "تم إيقاف الحساب."); ShowUsers();
+        })));
+        buttons.Children.Add(Btn("إعادة تعيين كلمة المرور", (_, _) => Safe(() =>
+        {
+            if (selected is null) throw new InvalidOperationException("حدد حسابا من الجدول.");
+            if (password.Password != confirm.Password)
+                throw new ArgumentException("كلمتا المرور غير متطابقتين.");
+            _store.ResetUserPassword(_actor, selected.Id, password.Password);
+            password.Clear(); confirm.Clear();
+            Info("تم تعيين كلمة المرور الجديدة بنجاح. أبلغ صاحب الحساب بطريقة آمنة.");
+        })));
+        form.Children.Add(buttons);
         root.Children.Add(Box(form));
-        Display("إدارة المستخدمين", root);
+        Display("إدارة المسؤولين والمستخدمين", root);
     }
 
     private void ShowAudit()
     {
+        if (!AccessPolicy.Has(_actor, PermissionFlags.ViewAudit)) throw new UnauthorizedAccessException();
         var root = Stack();
         root.Children.Add(Label("آخر 100 إجراء مسجل. لا تسمح الواجهة بحذف سجل العمليات.", 14));
         root.Children.Add(Box(GridFor(_store.GetRecentAudit(_actor),
