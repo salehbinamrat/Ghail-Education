@@ -294,11 +294,21 @@ public partial class MainWindow : Window
         var root = Stack();
         var data = _store.GetSchools(_actor);
         root.Children.Add(Label($"عدد المدارس الظاهرة: {data.Count} — حسب الصلاحيات المحددة لحسابك", 15));
+        School? selected = null;
+        var schoolSearch = Field(width: 335);
+        schoolSearch.ToolTip = "ابحث برمز المدرسة أو اسمها أو المنطقة أو المرحلة";
+        root.Children.Add(Box(LineOfFields(("بحث سريع في دليل المدارس", schoolSearch))));
         var grid = GridFor(data,
             ("الرمز", "Code", false), ("المدرسة", "Name", false), ("المنطقة", "Zone", false),
             ("الملكية", "Ownership", false), ("النوع", "Gender", false),
             ("المرحلة", "Stage", false), ("نشطة", "IsActive", false));
         root.Children.Add(Box(grid));
+        schoolSearch.TextChanged += (_, _) =>
+        {
+            selected = null;
+            grid.SelectedItem = null;
+            grid.ItemsSource = DirectorySearch.FindSchools(data, schoolSearch.Text);
+        };
         root.Children.Add(Label("انقر مرتين على اسم المدرسة لفتح ملفها الكامل، أو حددها ثم اضغط زر فتح الملف.", 13));
         grid.MouseDoubleClick += (_, e) =>
         {
@@ -331,7 +341,6 @@ public partial class MainWindow : Window
             }
             form.Children.Add(fields);
             form.Children.Add(active);
-            School? selected = null;
             grid.SelectionChanged += (_, _) =>
             {
                 selected = grid.SelectedItem as School;
@@ -447,6 +456,10 @@ public partial class MainWindow : Window
             ("نشط", "IsActive", false));
         staffGrid.MaxHeight = 370;
         root.Children.Add(Box(staffGrid));
+        var staffSearch = Field(width: 340);
+        staffSearch.ToolTip = "ابحث بالاسم أو الرقم الوظيفي أو التخصص أو المؤهل";
+        root.Children.Add(Box(LineOfFields(("بحث سريع في كشف الكادر", staffSearch))));
+        IReadOnlyList<SchoolStaff> staffCache = Array.Empty<SchoolStaff>();
         root.Children.Add(Label("انقر مرتين على اسم المعلم أو الإداري لفتح ملفه الوظيفي وتفاصيل الانتداب والتعاقد.", 13));
         staffGrid.MouseDoubleClick += (_, e) =>
         {
@@ -528,11 +541,17 @@ public partial class MainWindow : Window
         {
             Clear();
             if (schoolBox.SelectedItem is not School school) return;
-            staffGrid.ItemsSource = _store.GetSchoolStaff(_actor, school.Id);
+            staffCache = _store.GetSchoolStaff(_actor, school.Id);
+            staffGrid.ItemsSource = DirectorySearch.FindStaff(staffCache, staffSearch.Text);
             editor.IsEnabled = AccessPolicy.CanEditStaff(_actor, school.Id);
         }
 
         schoolBox.SelectionChanged += (_, _) => Safe(Refresh);
+        staffSearch.TextChanged += (_, _) =>
+        {
+            Clear();
+            staffGrid.ItemsSource = DirectorySearch.FindStaff(staffCache, staffSearch.Text);
+        };
 
         var actions = new WrapPanel();
         actions.Children.Add(Btn("سجل جديد", (_, _) => Clear()));
