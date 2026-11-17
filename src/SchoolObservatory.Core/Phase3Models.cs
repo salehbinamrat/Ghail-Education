@@ -21,8 +21,11 @@ public sealed record CensusReconciliationRow(
 {
     public int? Difference => ApprovedValue is int expected ? OperationalValue - expected : null;
     public bool IsDiscrepant => Difference is int value && value != 0;
-    public string ReviewStatus => ApprovedValue is null ? "لا توجد استمارة معتمدة" :
-        IsDiscrepant ? "يحتاج مراجعة" : "متطابق";
+    public string ReviewStatus =>
+        MetricKey.StartsWith("integrity.", StringComparison.Ordinal)
+            ? (OperationalValue == 0 ? "سليم" : "خلل مرجعي يحتاج مراجعة")
+            : ApprovedValue is null ? "لا يوجد رقم معتمد للمقارنة" :
+                IsDiscrepant ? "يحتاج مراجعة" : "متطابق";
 }
 
 /// <summary>Stable catalog for reconciliation and independently computed dashboard indicators.</summary>
@@ -57,6 +60,15 @@ public static class EducationalMetricCatalog
         new("councils.active", "أعضاء مجالس الآباء والأمهات",
             "school_council_members", "school_id + is_active=1",
             "COUNT(active council-member IDs)"),
+        new("integrity.student_reference", "مراجع الطالب أو الصف غير الصالحة",
+            "student_history + school_students + school_grades + academic_years", "school_id + academic_year",
+            "COUNT(placements with missing identity, grade or year)"),
+        new("integrity.student_active_duplicate", "تكرار قيد طالب نشط",
+            "student_history", "school_id + academic_year + active placement",
+            "COUNT(student identities with multiple concurrently active placements)"),
+        new("integrity.staff_assignment", "تكليف غير متسق مع ملاك الموظف",
+            "employee_assignments + employee_identities", "payroll school + active and historical assignments",
+            "COUNT(assignments with mismatched payroll, invalid references or overlapping intervals)"),
         new("integrity.staff_identity", "السجلات الوظيفية غير المربوطة بهوية موحدة",
             "school_staff + employee_identities", "school_id",
             "COUNT(staff without identity or mismatched payroll school)"),
