@@ -203,8 +203,10 @@ public static class XlsxReportWriter
             x.WriteStartElement("font");
             x.WriteStartElement("b"); x.WriteEndElement();
             x.WriteStartElement("sz"); x.WriteAttributeString("val", i == 0 ? "12" : "15"); x.WriteEndElement();
-            x.WriteStartElement("name"); x.WriteAttributeString("val", "Arial"); x.WriteEndElement();
+            // SpreadsheetML CT_Font requires color before name; ordering is validated
+            // by a separate OpenXmlValidator consumer test, not just XML parsing.
             x.WriteStartElement("color"); x.WriteAttributeString("rgb", "FF123B56"); x.WriteEndElement();
+            x.WriteStartElement("name"); x.WriteAttributeString("val", "Arial"); x.WriteEndElement();
             x.WriteEndElement();
         }
         x.WriteEndElement();
