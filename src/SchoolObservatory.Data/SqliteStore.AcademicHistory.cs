@@ -105,9 +105,9 @@ public sealed partial class SqliteStore
               assignment_type TEXT NOT NULL CHECK(assignment_type IN
                 ('original','assignment','secondment','transfer')),
               start_date TEXT NOT NULL, end_date TEXT NULL,
-              CHECK(end_date IS NULL OR end_date>=start_date),
               notes TEXT NOT NULL DEFAULT '', created_utc TEXT NOT NULL,
-              actor_id TEXT NULL REFERENCES users(id) ON DELETE RESTRICT
+              actor_id TEXT NULL REFERENCES users(id) ON DELETE RESTRICT,
+              CHECK(end_date IS NULL OR end_date>=start_date)
             );
             CREATE INDEX IF NOT EXISTS ix_employee_assignments_person
               ON employee_assignments(person_id,start_date);
