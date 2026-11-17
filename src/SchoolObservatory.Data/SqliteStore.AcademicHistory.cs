@@ -178,7 +178,10 @@ public sealed partial class SqliteStore
             ("student_results", "academic_year"),
             ("student_assessments", "academic_year"),
             ("student_attendance", "academic_year"),
-            ("submissions", "(SELECT academic_year FROM census_rounds WHERE id=round_id)"),
+            ("submissions", "round_id"),
+            ("enrollment_rows", "submission_id"),
+            ("decisions", "submission_id"),
+            ("census_rounds", "academic_year"),
             ("student_placement_events", "academic_year")
         })
         {
@@ -187,9 +190,13 @@ public sealed partial class SqliteStore
             foreach (var action in new[] { "INSERT", "UPDATE", "DELETE" })
             {
                 var prefix = action == "DELETE" ? "OLD" : "NEW";
-                string YearExpr(string row) => table == "submissions"
-                    ? $"(SELECT academic_year FROM census_rounds WHERE id={row}.round_id)"
-                    : $"{row}.academic_year";
+                string YearExpr(string row) => table switch
+                {
+                    "submissions" => $"(SELECT academic_year FROM census_rounds WHERE id={row}.round_id)",
+                    "enrollment_rows" or "decisions" =>
+                        $"(SELECT r.academic_year FROM submissions s JOIN census_rounds r ON r.id=s.round_id WHERE s.id={row}.submission_id)",
+                    _ => $"{row}.academic_year"
+                };
                 var oldCheck = action == "UPDATE" ? $"""
                     OR EXISTS(SELECT 1 FROM academic_years
                       WHERE year={YearExpr("OLD")} AND status='closed')
