@@ -54,6 +54,7 @@ public sealed partial class SqliteStore
             CREATE INDEX IF NOT EXISTS ix_staff_school_category ON school_staff(school_id,category,is_active);
             """);
         cmd.ExecuteNonQuery();
+        MigrateDirectoryProfiles(con);
     }
 
     private static void CheckGender(string gender)
