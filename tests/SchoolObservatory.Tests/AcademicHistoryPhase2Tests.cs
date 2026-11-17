@@ -297,6 +297,31 @@ public sealed class AcademicHistoryPhase2Tests
         Assert.Equal("أساسي", Assert.Single(db.GetSchoolGrades(owner, a.Id)).Stage);
     }
 
+
+    [Fact]
+    public void ClosedYearAlsoProtectsCensusEnrollmentRowsAndDecisions()
+    {
+        var (db, owner, a, _, path) = Prepare();
+        var census = new CensusData(new[] { new EnrollmentLine("3", 10, 0) },
+            2, 0, 1, "");
+        db.SaveDraft(owner, a.Id, census);
+        db.OpenAcademicYear(owner, "2027/2028");
+        db.ActivateAcademicYear(owner, "2027/2028");
+        db.CloseAcademicYear(owner, "2026/2027");
+        using var con = DatabaseSecurity.OpenForRegressionTest(path);
+        using (var cmd = con.CreateCommand())
+        {
+            cmd.CommandText = "UPDATE enrollment_rows SET boys=999 WHERE grade='3'";
+            Assert.Throws<Microsoft.Data.Sqlite.SqliteException>(() => cmd.ExecuteNonQuery());
+        }
+        using (var cmd = con.CreateCommand())
+        {
+            cmd.CommandText = "DELETE FROM enrollment_rows WHERE grade='3'";
+            Assert.Throws<Microsoft.Data.Sqlite.SqliteException>(() => cmd.ExecuteNonQuery());
+        }
+        Assert.Equal(10, db.GetLatestSubmission(owner, a.Id)!.Data.Rows.Single().Boys);
+    }
+
     [Fact]
     public void MigrationKeepsExistingStudentStaffAndAuditWithoutChangingIds()
     {
