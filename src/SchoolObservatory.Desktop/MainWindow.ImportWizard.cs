@@ -246,7 +246,7 @@ public partial class MainWindow
                     Title="اختر الملف المراد استيراده"
                 };
                 if(dialog.ShowDialog()!=true)return;
-                var button=(Button)_;
+                var button=(Button)sender;
                 button.IsEnabled=false;
                 try
                 {
