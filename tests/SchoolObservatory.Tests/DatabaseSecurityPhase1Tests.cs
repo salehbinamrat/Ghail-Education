@@ -358,13 +358,12 @@ public sealed class DatabaseSecurityPhase1Tests
         SqliteConnection.ClearAllPools();
         var rollback = path + ".20261117000000000.legacy-original";
         File.Copy(path, rollback);
-        var store = new SqliteStore(path);
-        store.Initialize();
-        // Create a matching unencrypted rollback from the old schema for a resume check.
+        _ = new SqliteStore(path); // After migration, before additive schema initialization.
         Assert.True(File.Exists(rollback));
-        var reopened = new SqliteStore(path);
-        Assert.Equal(1, DatabaseSecurity.CountRows(path, "legacy"));
+        var reopened = new SqliteStore(path); // Verifies and retires only matching legacy data.
         Assert.False(File.Exists(rollback));
+        reopened.Initialize();
+        Assert.Equal(1, DatabaseSecurity.CountRows(path, "legacy"));
     }
 
 }
