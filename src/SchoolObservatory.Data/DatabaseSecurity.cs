@@ -257,6 +257,7 @@ public static class DatabaseSecurity
                 }
                 using var con = OpenEncrypted(db, key);
                 VerifyIntegrity(con);
+                RetireVerifiedInterruptedRollbacks(db, con);
                 SecureFile(db);
                 SecureFile(keyFile);
                 return key;
@@ -297,6 +298,25 @@ public static class DatabaseSecurity
                 return key;
             }
             finally { CryptographicOperations.ZeroMemory(fresh); }
+        }
+    }
+
+    /// <summary>
+    /// If a process stopped immediately after atomic promotion but before deleting
+    /// the original plaintext, verify exact content before retiring that original.
+    /// Never silently discard a rollback with different records.
+    /// </summary>
+    private static void RetireVerifiedInterruptedRollbacks(string db, SqliteConnection encrypted)
+    {
+        var folder = Path.GetDirectoryName(db)!;
+        var name = Path.GetFileName(db);
+        var rollbacks = Directory.GetFiles(folder, name + ".*.legacy-original");
+        foreach (var rollback in rollbacks)
+        {
+            using (var legacy = OpenPlaintext(rollback))
+                CompareAllRecords(legacy, encrypted);
+            // CompareAllRecords must finish and the connection must close first.
+            File.Delete(rollback);
         }
     }
 
