@@ -12,7 +12,7 @@ public sealed record ImportFieldChange(string Field, string Before, string After
 
 public sealed record ImportPlanRow(
     int RowNumber, string RecordKey, ImportRowStatus Status, string? EntityId,
-    IReadOnlyList<ImportFieldChange> Changes, string Message);
+    IReadOnlyList<ImportFieldChange> Changes, string Message, string ExistingRecordSha256 = "");
 
 /// <summary>Contains the exact immutable source values the user saw at preview time.</summary>
 public sealed record ImportPreview(
