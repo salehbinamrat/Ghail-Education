@@ -232,6 +232,17 @@ public sealed partial class SqliteStore
     }
 
     /// <summary>The original student identity remains unchanged across school placements.</summary>
+    public bool CanEditPermanentStudentIdentity(UserAccount actor, string studentId)
+    {
+        RequireFreshActor(actor);
+        using var con = Open();
+        using var cmd = Cmd(con, null,
+            "SELECT school_id FROM school_students WHERE id=$id", ("$id", studentId));
+        var originalSchool = cmd.ExecuteScalar()?.ToString();
+        return originalSchool is not null &&
+            AccessPolicy.CanManageStudents(actor, originalSchool);
+    }
+
     private static bool IsStudentOriginSchool(SqliteConnection con, SqliteTransaction? tx,
         string studentId, string schoolId)
     {
@@ -424,6 +435,19 @@ public sealed partial class SqliteStore
             !IsStudentOriginSchool(con, tx, id, student.SchoolId);
         if (fromAnotherSchool)
         {
+            // The person record is anchored to the originating school. A destination
+            // editor can manage its own enrollment via controlled transitions, but
+            // cannot rewrite another school's global name, guardians or identity.
+            using (var original = Cmd(con, tx,
+                "SELECT school_id FROM school_students WHERE id=$id",
+                ("$id", id)))
+            {
+                var ownerSchool = original.ExecuteScalar()?.ToString()
+                    ?? throw new InvalidOperationException("هوية الطالب غير موجودة.");
+                if (!AccessPolicy.CanManageStudents(actor, ownerSchool))
+                    throw new UnauthorizedAccessException(
+                        "تعديل بيانات الهوية المشتركة يتطلب صلاحية المدرسة الأصلية. يمكن إدارة الشعبة والنقل من سجل الحركة.");
+            }
             using var current = Cmd(con, tx, """
                 SELECT EXISTS(SELECT 1 FROM student_history
                 WHERE student_id=$id AND school_id=$s AND academic_year=$year
