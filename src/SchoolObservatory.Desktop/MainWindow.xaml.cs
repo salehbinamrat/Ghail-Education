@@ -43,6 +43,11 @@ public partial class MainWindow : Window
         if (AccessPolicy.Has(actor, PermissionFlags.EditCensus) || AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("إحصاء الطلاب والمعلمين", ShowCensus);
         if (AccessPolicy.Has(actor, PermissionFlags.ApproveSchool) || AccessPolicy.Has(actor, PermissionFlags.ApproveDistrict) || AccessPolicy.Has(actor, PermissionFlags.ReviewCensus)) AddNav("مراجعة واعتماد الإحصاء", ShowReviews);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("التقارير والتصدير", ShowReports);
+        if (AccessPolicy.Has(actor, PermissionFlags.ViewSchools) &&
+            (AccessPolicy.CanEditSchool(actor) ||
+             AccessPolicy.Has(actor, PermissionFlags.ManageStaff) ||
+             AccessPolicy.Has(actor, PermissionFlags.ManageStudents)))
+            AddNav("الاستيراد الآمن وسجل الدفعات", ShowImportHistory);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewReports) &&
             AccessPolicy.Has(actor, PermissionFlags.ViewStudents) &&
             AccessPolicy.Has(actor, PermissionFlags.ViewStaff) &&
@@ -463,23 +468,8 @@ public partial class MainWindow : Window
                 });
                 Info("تم حفظ بيانات المدرسة."); ShowSchools();
             })));
-            buttons.Children.Add(Btn("استيراد مدارس من Excel CSV", (_, _) => Safe(() =>
-            {
-                var file = new OpenFileDialog { Filter = "CSV (*.csv)|*.csv", Title = "اختر قائمة المدارس بصيغة CSV UTF-8" };
-                if (file.ShowDialog() != true) return;
-                if (new FileInfo(file.FileName).Length > 5_000_000)
-                    throw new ArgumentException("حجم الملف يتجاوز 5 ميجابايت.");
-                IReadOnlyList<SchoolImport> entries;
-                try { entries = SchoolCsvParser.ParseUtf8(File.ReadAllBytes(file.FileName)); }
-                catch (DecoderFallbackException)
-                {
-                    throw new ArgumentException("تعذر قراءة الملف بترميز UTF-8 الصحيح. احفظ قائمة المدارس بصيغة CSV UTF-8 من Excel ثم حاول مجددا.");
-                }
-                if (MessageBox.Show($"سيتم إضافة {entries.Count} مدرسة. هل تريد المتابعة؟",
-                    "تأكيد الاستيراد", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-                var imported = _store.ImportSchools(_actor, entries);
-                Info($"تم استيراد {imported} مدرسة دون أخطاء."); ShowSchools();
-            })));
+            buttons.Children.Add(Btn("معالج استيراد المدارس (CSV / Excel / Word)",
+                (_,_) => ShowImportWizard(ImportEntity.Schools),tone:"secondary"));
             buttons.Children.Add(Btn("مسح الحقول", (_, _) =>
             {
                 selected = null; grid.SelectedItem = null; code.Text = ""; name.Text = "";
@@ -734,39 +724,9 @@ public partial class MainWindow : Window
         importPanel.Children.Add(Label("استيراد سجلات المدارس من Excel أو Word", 16, true));
         importPanel.Children.Add(Label(
             "يدعم الجداول المنظمة .xlsx و.docx. يجب أن يحتوي كل صف على رمز المدرسة والرقم الوظيفي والاسم والفئة؛ يتم التوجيه برمز المدرسة وليس بالتخمين من اسم الملف. السجلات الموجودة بالرقم نفسه سيتم تحديثها بعد التأكيد.", 13));
-        importPanel.Children.Add(Btn("اختيار ملف Excel أو Word واستيراد الكادر", async (_, _) =>
-        {
-            try
-            {
-                var file = new OpenFileDialog
-                {
-                    Filter = "Excel (*.xlsx)|*.xlsx|Word (*.docx)|*.docx",
-                    Title = "اختر جدول سجلات المعلمين والإداريين والأخصائيين"
-                };
-                if (file.ShowDialog() != true) return;
-                var rows = await Task.Run(() => SchoolStaffImportParser.Parse(file.FileName));
-                var groups = rows.GroupBy(x => x.SchoolCode.Trim(), StringComparer.OrdinalIgnoreCase)
-                    .Select(g => g.Key + ": " + g.Count().ToString(CultureInfo.InvariantCulture) + " سجل")
-                    .Take(10);
-                var message = "تم العثور على " + rows.Count + " سجلا ضمن المدارس التالية:" +
-                    Environment.NewLine + string.Join(Environment.NewLine, groups) +
-                    Environment.NewLine + Environment.NewLine +
-                    "سيتم إضافة السجلات الجديدة وتحديث البيانات المناظرة بالرقم الوظيفي. " +
-                    "أي رمز مدرسة غير صحيح سيوقف العملية كاملة. هل تعتمد الاستيراد؟";
-                if (MessageBox.Show(message, "مراجعة قبل الاستيراد",
-                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-                var imported = await Task.Run(() => _store.ImportStaffRecords(
-                    _actor, rows, Path.GetFileName(file.FileName)));
-                Info("تم تسجيل " + imported + " صفا وتحديث دليل الكادر الموحد دون استيراد جزئي.");
-                ShowStaffCore(schoolBox.SelectedItem is School currentSchool
-                    ? currentSchool.Id : null);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message, "تعذر استيراد سجلات المدرسة",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
-        }));
+        importPanel.Children.Add(Btn("فتح المعالج الآمن لاستيراد الكادر",
+            (_,_) => ShowImportWizard(ImportEntity.Staff,
+                (schoolBox.SelectedItem as School)?.Id),tone:"secondary"));
         schoolBox.SelectionChanged += (_, _) =>
         {
             if (schoolBox.SelectedItem is School school)
