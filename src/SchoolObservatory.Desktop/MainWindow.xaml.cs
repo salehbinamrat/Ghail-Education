@@ -30,6 +30,8 @@ public partial class MainWindow : Window
         AccountText.Text = $"{actor.Username}  |  {(actor.IsOwner ? "المسؤول المؤسس" : RoleName(actor.Role))}";
         YearText.Text = $"العام الدراسي: {store.AcademicYear}";
         AddNav("لوحة التحكم", ShowDashboard);
+        if (AccessPolicy.Has(actor, PermissionFlags.ViewSchools))
+            AddNav("الأعوام الدراسية والأرشيف", ShowAcademicYears);
         AddNav("دليل المدارس", ShowSchools);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewStaff))
             AddNav("كادر المدارس والسجلات", ShowStaff);
@@ -67,6 +69,7 @@ public partial class MainWindow : Window
         {
             "لوحة التحكم" => Color.FromRgb(10, 88, 150),
             "الطلاب والصفوف" => Color.FromRgb(4, 108, 123),
+            "الأعوام الدراسية والأرشيف" => Color.FromRgb(31, 99, 122),
             "إدارة المستخدمين" => Color.FromRgb(79, 67, 143),
             "التقارير والتصدير" => Color.FromRgb(3, 99, 137),
             "سجل العمليات" => Color.FromRgb(48, 86, 116),
