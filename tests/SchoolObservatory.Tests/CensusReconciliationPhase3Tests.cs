@@ -73,7 +73,7 @@ public sealed class CensusReconciliationPhase3Tests
         using var verify = DatabaseSecurity.OpenForRegressionTest(path);
         using var check = verify.CreateCommand();
         check.CommandText = "PRAGMA user_version;";
-        Assert.Equal(4L, Convert.ToInt64(check.ExecuteScalar()));
+        Assert.Equal(5L, Convert.ToInt64(check.ExecuteScalar()));
         Assert.NotEmpty(Directory.GetFiles(
             Path.Combine(Path.GetDirectoryName(path)!, "recovery"), "before-schema-*.db"));
     }
