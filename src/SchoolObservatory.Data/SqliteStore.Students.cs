@@ -622,13 +622,14 @@ public sealed partial class SqliteStore
         RequireEnrolledYear(con, tx, schoolId, studentId, year);
         using var cmd = Cmd(con, tx, """
             INSERT INTO student_attendance(id,student_id,school_id,attendance_date,
-                status,notes,updated_utc)
-            VALUES($id,$student,$s,$day,$status,$notes,$at)
+                status,notes,updated_utc,academic_year)
+            VALUES($id,$student,$s,$day,$status,$notes,$at,$year)
             ON CONFLICT(student_id,attendance_date) DO UPDATE
-            SET status=excluded.status,notes=excluded.notes,updated_utc=excluded.updated_utc
+            SET status=excluded.status,notes=excluded.notes,updated_utc=excluded.updated_utc,
+                academic_year=excluded.academic_year
             """, ("$id", Id()), ("$student", studentId), ("$s", schoolId),
             ("$day", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
-            ("$status", status), ("$notes", notes.Trim()), ("$at", Utc()));
+            ("$status", status), ("$notes", notes.Trim()), ("$at", Utc()), ("$year", year));
         cmd.ExecuteNonQuery();
         Audit(con, tx, actor.Id, "student.attendance", studentId,
             $"school={schoolId};day={date:yyyy-MM-dd};status={status}");
