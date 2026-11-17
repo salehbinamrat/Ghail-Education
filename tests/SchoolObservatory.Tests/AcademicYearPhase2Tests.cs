@@ -146,6 +146,22 @@ public sealed class AcademicYearPhase2Tests
     }
 
     [Fact]
+    public void GraduationArchivesStudentWithoutDeletingGradesOrHistory()
+    {
+        var (store, owner, school, _) = Setup();
+        store.AddSchoolGrade(owner, school.Id, 9, "أ");
+        store.SaveStudent(owner, new SchoolStudent("", school.Id, "006", "طالب", 9, "أ", "", "", "", "", true, "2026/2027"));
+        var student=store.GetStudents(owner, school.Id).Single();
+        store.SaveStudentResult(owner, school.Id, student.Id, "الفصل الأول", "العلوم", 80, 100, "");
+        store.CompleteStudentEnrollment(owner, school.Id, student.Id, "graduate");
+        Assert.Empty(store.GetStudents(owner, school.Id));
+        Assert.Equal(80, store.GetStudentResults(owner, school.Id, student.Id).Single().Score);
+        Assert.Contains(store.GetStudentHistory(owner, school.Id, student.Id), x => x.Action=="graduate");
+        Assert.Throws<InvalidOperationException>(() =>
+            store.CompleteStudentEnrollment(owner, school.Id, student.Id, "graduate"));
+    }
+
+    [Fact]
     public void ScopedSchoolAccountCannotControlAcademicYears()
     {
         var (store, owner, school, _) = Setup();
