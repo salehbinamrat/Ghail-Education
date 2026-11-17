@@ -57,6 +57,27 @@ public static class SchoolStaffImportParser
             archive.Entries.Any(e => e.Length > MaxXmlBytes) ||
             archive.Entries.Sum(e => e.Length) > 40_000_000)
             throw new ArgumentException("الملف المضغوط يحتوي محتوى أكبر من الحد الآمن.");
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in archive.Entries)
+        {
+            var name = entry.FullName.Replace('\\','/');
+            if (!names.Add(name) || name.StartsWith('/') ||
+                name.Split('/').Any(part => part is "." or "..") ||
+                name.StartsWith("xl/externalLinks/", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("vbaProject", StringComparison.OrdinalIgnoreCase) ||
+                name.Equals("xl/connections.xml", StringComparison.OrdinalIgnoreCase) ||
+                (entry.CompressedLength == 0 && entry.Length > 0) ||
+                (entry.CompressedLength > 0 && entry.Length / entry.CompressedLength > 400))
+                throw new ArgumentException("ملف Office يحتوي مكونات خارجية أو مضغوطة بشكل خطير أو مسارات مكررة.");
+            if (name.EndsWith(".rels", StringComparison.OrdinalIgnoreCase))
+            {
+                var rels = ReadXml(archive, entry.FullName);
+                if (rels.Descendants().Any(x =>
+                    string.Equals((string?)x.Attribute("TargetMode"), "External",
+                        StringComparison.OrdinalIgnoreCase)))
+                    throw new ArgumentException("روابط Office الخارجية غير مدعومة في الاستيراد.");
+            }
+        }
 
         return extension == ".docx"
             ? ParseWord(archive, matchesHeaders)
@@ -114,7 +135,8 @@ public static class SchoolStaffImportParser
                 // remap a school or personnel number. Only import literal values.
                 if (cell.Element(ns + "f") is not null ||
                     (string?)cell.Attribute("t") == "e")
-                    throw new ArgumentException("يحتوي ملف Excel خلايا بصيغ حسابية أو أخطاء؛ حوّل الجدول إلى قيم ثابتة قبل الاستيراد.");
+                    throw new ArgumentException(
+                        $"ورقة Excel — الخلية {(string?)cell.Attribute("r") ?? "غير معروفة"}: صيغة أو خطأ. حوّلها إلى قيمة ثابتة قبل الاستيراد.");
                 var col = ExcelColumn((string?)cell.Attribute("r"), sequential);
                 sequential = col + 1;
                 if (col >= 30) throw new ArgumentException("عدد أعمدة السجلات في Excel كبير جدا.");
