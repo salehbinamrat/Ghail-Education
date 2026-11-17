@@ -175,6 +175,7 @@ public sealed partial class SqliteStore
             string? entityId=null;
             var changes=new List<ImportFieldChange>();
             string message="";
+            string existingRecordSha256="";
             try
             {
                 if(row.Count>table.Headers.Count)
@@ -224,6 +225,10 @@ public sealed partial class SqliteStore
                     _=>context.Staff.GetValueOrDefault(lookupKey)
                 };
                 entityId=existing?.Id;
+                existingRecordSha256=existing is null ? "" :
+                    Digest(JsonSerializer.Serialize(existing.Fields
+                        .OrderBy(field=>field.Key,StringComparer.Ordinal)
+                        .Select(field=>new { field.Key,field.Value }).ToArray()));
                 var state=existing is null ? new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase)
                     : new Dictionary<string,string>(existing.Fields,StringComparer.OrdinalIgnoreCase);
                 if(entity!=ImportEntity.Schools)
@@ -346,7 +351,7 @@ public sealed partial class SqliteStore
                 planned[seen[displayKey]]=earlier with {Status=ImportRowStatus.Duplicate,
                     Message=$"الصف {earlier.RowNumber}: المعرف مكرر في الصف {line}."};
             }
-            planned.Add(new ImportPlanRow(line,displayKey,result,entityId,changes,message));
+            planned.Add(new ImportPlanRow(line,displayKey,result,entityId,changes,message,existingRecordSha256));
         }
         var sourceHash=ImportSourceHash(entity,sourceName,table,mapping,defaultSchoolId);
         return new ImportPreview(entity,sourceName,table,mapping,defaultSchoolId,
