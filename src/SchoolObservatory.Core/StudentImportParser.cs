@@ -61,9 +61,8 @@ public static class StudentImportParser
         {
             if (row.All(string.IsNullOrWhiteSpace)) continue;
             var gradeValue = Value(row, "grade");
-            if (!int.TryParse(gradeValue, NumberStyles.None, CultureInfo.InvariantCulture, out var grade) ||
-                grade is < 1 or > 12)
-                throw new ArgumentException("الصف الدراسي يجب أن يكون رقما صحيحا من 1 إلى 12.");
+            if (!GradeNames.TryParse(gradeValue, out var grade))
+                throw new ArgumentException("الصف الدراسي غير صحيح. أدخل اسم الصف بالعربية أو رقمه من 1 إلى 12.");
             var section = Value(row, "section");
             result.Add(new StudentImportRow(Value(row, "school_code"),
                 Value(row, "student_code"), Value(row, "full_name"), grade,
