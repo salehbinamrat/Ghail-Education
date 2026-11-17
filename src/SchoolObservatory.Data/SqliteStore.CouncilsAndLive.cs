@@ -143,10 +143,11 @@ public sealed partial class SqliteStore
             SELECT
               (SELECT COUNT(*) FROM schools s WHERE s.is_active=1
                   AND ($scope IS NULL OR s.id=$scope)),
-              (SELECT COUNT(*) FROM school_students st
-               JOIN student_enrollments e ON e.student_id=st.id AND e.school_id=st.school_id
-               JOIN schools s ON s.id=st.school_id
+              (SELECT COUNT(DISTINCT st.id) FROM student_history e
+               JOIN school_students st ON st.id=e.student_id
+               JOIN schools s ON s.id=e.school_id
                WHERE st.is_active=1 AND s.is_active=1 AND e.academic_year=$year
+                 AND e.end_utc IS NULL AND e.status='مسجل'
                  AND ($scope IS NULL OR s.id=$scope)),
               (SELECT COUNT(*) FROM school_staff st JOIN schools s ON s.id=st.school_id
                WHERE st.is_active=1 AND st.category='معلم' AND s.is_active=1

@@ -362,7 +362,7 @@ public static class DatabaseSecurity
                 using (var version = source.CreateCommand())
                 {
                     version.CommandText = "PRAGMA user_version;";
-                    if (Convert.ToInt32(version.ExecuteScalar(), CultureInfo.InvariantCulture) > 1)
+                    if (Convert.ToInt32(version.ExecuteScalar(), CultureInfo.InvariantCulture) > 2)
                         throw new InvalidDataException("Cannot migrate a database created by a newer unsupported application version.");
                 }
                 // SQLite3MC cannot use sqlite3_backup across plaintext/encrypted databases.

@@ -125,6 +125,10 @@ public partial class MainWindow
             }), tone: school.IsActive ? "danger" : "secondary"));
         }
         root.Children.Add(Box(basic));
+        AppendSchoolInfrastructure(root, school);
+        if (AccessPolicy.CanSeeStudents(_actor, schoolId))
+            root.Children.Add(Btn("إدارة الغرف الفعلية وربط الشعب", (_, _) =>
+                ShowPhysicalClassrooms(school), tone: "secondary"));
 
         var info = Stack();
         info.Children.Add(Label("المعلومات الإدارية والتواصل", 18, true));
@@ -349,6 +353,7 @@ public partial class MainWindow
             ShowStaffProfile(schoolId, staffId);
         }), canEdit, "success"));
         root.Children.Add(Box(personnel));
+        AppendEmployeeAssignments(root, school, staffId);
         Display("ملف الموظف", root);
     }
 }

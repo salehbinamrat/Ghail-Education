@@ -49,14 +49,14 @@ public sealed partial class SqliteStore
         int databaseVersion;
         using (var version = Cmd(con, null, "PRAGMA user_version;"))
             databaseVersion = Convert.ToInt32(version.ExecuteScalar(), CultureInfo.InvariantCulture);
-        if (databaseVersion > 1)
+        if (databaseVersion > 2)
             throw new InvalidDataException("This database uses a newer unsupported schema. Open it with the matching application version.");
         using var pragma = Cmd(con, null, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;");
         pragma.ExecuteNonQuery();
         // Version 0 is legacy. Back up every existing schema before additive migrations.
         using (var tableCount = Cmd(con, null, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"))
         {
-            if (databaseVersion < 1 &&
+            if (databaseVersion < 2 &&
                 Convert.ToInt32(tableCount.ExecuteScalar(), CultureInfo.InvariantCulture) > 0)
                 DatabaseSecurity.BackupSchemaBeforeChanges(_databasePath, _databaseKey);
         }
@@ -128,7 +128,8 @@ public sealed partial class SqliteStore
         MigrateUserPermissions(con);
         MigrateSchoolRecords(con);
         MigrateStudentRecords(con);
-        using (var mark = Cmd(con, null, "PRAGMA user_version=1;")) mark.ExecuteNonQuery();
+        MigrateAcademicHistory(con);
+        using (var mark = Cmd(con, null, "PRAGMA user_version=2;")) mark.ExecuteNonQuery();
         using (var commit = Cmd(con, null, "COMMIT;")) commit.ExecuteNonQuery();
         }
         catch
@@ -193,6 +194,11 @@ public sealed partial class SqliteStore
             ("$d", district.Trim()), ("$y", year))) cmd.ExecuteNonQuery();
         using (var cmd = Cmd(con, tx, "INSERT INTO census_rounds(id,academic_year,snapshot_date) VALUES($id,$y,$date)",
             ("$id", Id()), ("$y", year), ("$date", DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)))) cmd.ExecuteNonQuery();
+        using (var cmd = Cmd(con, tx, """
+            INSERT INTO academic_years(year,is_active,is_closed,opened_utc)
+            VALUES($year,1,0,$at)
+            ON CONFLICT(year) DO UPDATE SET is_active=1,is_closed=0
+            """, ("$year", year), ("$at", Utc()))) cmd.ExecuteNonQuery();
         Audit(con, tx, userId, "bootstrap", userId, "Initial administrator and district configured");
         tx.Commit();
     }

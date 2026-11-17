@@ -30,11 +30,16 @@ public partial class MainWindow : Window
         AccountText.Text = $"{actor.Username}  |  {(actor.IsOwner ? "المسؤول المؤسس" : RoleName(actor.Role))}";
         YearText.Text = $"العام الدراسي: {store.AcademicYear}";
         AddNav("لوحة التحكم", ShowDashboard);
+        if (AccessPolicy.Has(actor, PermissionFlags.ViewSchools))
+            AddNav("الأعوام الدراسية والأرشيف", ShowAcademicYears);
         AddNav("دليل المدارس", ShowSchools);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewStaff))
             AddNav("كادر المدارس والسجلات", ShowStaff);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewStudents))
+        {
             AddNav("الطلاب والصفوف", ShowStudents);
+            AddNav("أرشيف الطلاب والترفيع", ShowHistoricalRosters);
+        }
         if (AccessPolicy.Has(actor, PermissionFlags.EditCensus) || AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("إحصاء الطلاب والمعلمين", ShowCensus);
         if (AccessPolicy.Has(actor, PermissionFlags.ApproveSchool) || AccessPolicy.Has(actor, PermissionFlags.ApproveDistrict) || AccessPolicy.Has(actor, PermissionFlags.ReviewCensus)) AddNav("مراجعة واعتماد الإحصاء", ShowReviews);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("التقارير والتصدير", ShowReports);
@@ -67,6 +72,7 @@ public partial class MainWindow : Window
         {
             "لوحة التحكم" => Color.FromRgb(10, 88, 150),
             "الطلاب والصفوف" => Color.FromRgb(4, 108, 123),
+            "الأعوام الدراسية والأرشيف" => Color.FromRgb(31, 99, 122),
             "إدارة المستخدمين" => Color.FromRgb(79, 67, 143),
             "التقارير والتصدير" => Color.FromRgb(3, 99, 137),
             "سجل العمليات" => Color.FromRgb(48, 86, 116),
