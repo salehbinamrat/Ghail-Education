@@ -37,6 +37,7 @@ public sealed partial class SqliteStore
             );
             """);
         cmd.ExecuteNonQuery();
+        MigrateParentCouncils(con);
     }
 
     private static int? OptionalYear(SqliteDataReader r, int i) =>
