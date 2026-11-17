@@ -341,7 +341,8 @@ public partial class MainWindow : Window
         void UpdateEmpty() =>
             note.Visibility = grid.HasItems ? Visibility.Collapsed : Visibility.Visible;
         grid.Loaded += (_, _) => UpdateEmpty();
-        grid.Items.CollectionChanged += (_, _) => UpdateEmpty();
+        ((System.Collections.Specialized.INotifyCollectionChanged)grid.Items)
+            .CollectionChanged += (_, _) => UpdateEmpty();
         surface.Children.Add(note);
         UpdateEmpty();
         return surface;
