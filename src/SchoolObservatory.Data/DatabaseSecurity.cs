@@ -401,6 +401,32 @@ public static class DatabaseSecurity
         return (long)(cmd.ExecuteScalar() ?? 0L);
     }
 
+    internal static void ProtectLocalDirectory(string path) => SecureDirectory(path);
+    internal static void CreateProtectedKeyFile(string path, byte[] key) => WriteKey(path, key);
+
+    internal static SqliteConnection OpenForRecoveryCheck(string db) =>
+        OpenEncrypted(db, ReadHexKey(KeyFile(db)));
+
+    internal static void ValidateRecoverySource(SqliteConnection con)
+    {
+        var counts = TableCounts(con);
+        foreach (var required in new[] { "users", "schools", "submissions", "audit_events",
+            "school_staff", "school_students", "student_results" })
+            if (!counts.ContainsKey(required))
+                throw new InvalidDataException("Recovery source is not a complete School Observatory database.");
+    }
+
+    internal static void VacuumToEncrypted(SqliteConnection source, string output, string passphrase)
+    {
+        if (File.Exists(output)) throw new IOException("Encrypted snapshot already exists.");
+        var destinationUri = new Uri(FullPath(output)).AbsoluteUri +
+            "?cipher=sqlcipher&legacy=4&key=" + Uri.EscapeDataString(passphrase);
+        using var command = source.CreateCommand();
+        command.CommandText = "VACUUM INTO $destination;";
+        command.Parameters.AddWithValue("$destination", destinationUri);
+        command.ExecuteNonQuery();
+    }
+
     internal static void ProtectLocalFile(string path) => SecureFile(path);
 
     // Internal-only regression hook: never exposed through application UI.
