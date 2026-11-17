@@ -11,6 +11,65 @@ namespace SchoolObservatory.Data;
 /// </summary>
 public sealed partial class SqliteStore
 {
+    /// <summary>
+    /// The final approval is a historical snapshot. Database-level guards protect it
+    /// from direct SQL updates too; audit decisions may still be appended when the
+    /// district approves the form. This migration never rewrites old submissions.
+    /// </summary>
+    private static void MigratePhase3Protection(SqliteConnection con)
+    {
+        using var cmd = Cmd(con, null, """
+            CREATE TRIGGER IF NOT EXISTS p3_approved_submission_update
+              BEFORE UPDATE ON submissions WHEN OLD.status='approved'
+            BEGIN SELECT RAISE(ABORT,'Approved census is immutable; submit an authorized revision'); END;
+
+            CREATE TRIGGER IF NOT EXISTS p3_approved_submission_delete
+              BEFORE DELETE ON submissions WHEN OLD.status='approved'
+            BEGIN SELECT RAISE(ABORT,'Approved census cannot be deleted'); END;
+
+            CREATE TRIGGER IF NOT EXISTS p3_approved_enrollment_insert
+              BEFORE INSERT ON enrollment_rows
+              WHEN EXISTS(SELECT 1 FROM submissions s
+                          WHERE s.id=NEW.submission_id AND s.status='approved')
+            BEGIN SELECT RAISE(ABORT,'Cannot add rows to approved census'); END;
+
+            CREATE TRIGGER IF NOT EXISTS p3_approved_enrollment_update
+              BEFORE UPDATE ON enrollment_rows
+              WHEN EXISTS(SELECT 1 FROM submissions s
+                          WHERE s.id=OLD.submission_id AND s.status='approved')
+                OR EXISTS(SELECT 1 FROM submissions s
+                          WHERE s.id=NEW.submission_id AND s.status='approved')
+            BEGIN SELECT RAISE(ABORT,'Cannot edit approved enrollment totals'); END;
+
+            CREATE TRIGGER IF NOT EXISTS p3_approved_enrollment_delete
+              BEFORE DELETE ON enrollment_rows
+              WHEN EXISTS(SELECT 1 FROM submissions s
+                          WHERE s.id=OLD.submission_id AND s.status='approved')
+            BEGIN SELECT RAISE(ABORT,'Cannot delete approved enrollment totals'); END;
+
+            CREATE TRIGGER IF NOT EXISTS p3_approved_decisions_update
+              BEFORE UPDATE ON decisions
+              WHEN EXISTS(SELECT 1 FROM submissions s
+                          WHERE s.id=OLD.submission_id AND s.status='approved')
+                OR EXISTS(SELECT 1 FROM submissions s
+                          WHERE s.id=NEW.submission_id AND s.status='approved')
+            BEGIN SELECT RAISE(ABORT,'Cannot rewrite approved audit history'); END;
+
+            CREATE TRIGGER IF NOT EXISTS p3_approved_decisions_delete
+              BEFORE DELETE ON decisions
+              WHEN EXISTS(SELECT 1 FROM submissions s
+                          WHERE s.id=OLD.submission_id AND s.status='approved')
+            BEGIN SELECT RAISE(ABORT,'Cannot erase approved audit history'); END;
+
+            CREATE TRIGGER IF NOT EXISTS p3_approved_round_retarget
+              BEFORE UPDATE OF academic_year ON census_rounds
+              WHEN EXISTS(SELECT 1 FROM submissions s
+                          WHERE s.round_id=OLD.id AND s.status='approved')
+            BEGIN SELECT RAISE(ABORT,'Cannot move approved census to another academic year'); END;
+            """);
+        cmd.ExecuteNonQuery();
+    }
+
     private static int Count64(SqliteDataReader reader, int index) =>
         checked((int)reader.GetInt64(index));
 
