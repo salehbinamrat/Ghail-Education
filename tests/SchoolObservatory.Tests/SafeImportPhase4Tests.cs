@@ -309,6 +309,34 @@ public sealed class SafeImportPhase4Tests
     }
 
     [Fact]
+    public void InvalidFieldMessagesIdentifyTheExactFileRowAndSourceColumn()
+    {
+        var (db,actor,school)=New();
+        var schoolRows=Table(["code","name","zone","ownership","stage"],
+            ["NEW","اسم مدرسة","موقع","غير معروف","أساسي"]);
+        var schoolError=Assert.Single(Plan(db,actor,ImportEntity.Schools,
+            "invalid-ownership.csv",schoolRows).Rows);
+        Assert.Equal(ImportRowStatus.Invalid,schoolError.Status);
+        Assert.Contains("الصف 2",schoolError.Message);
+        Assert.Contains("ownership",schoolError.Message);
+
+        var staffRows=Table(["school_code","employee_code","full_name","category"],
+            ["A01","E01","معلم","تصنيف مجهول"]);
+        var staffError=Assert.Single(Plan(db,actor,ImportEntity.Staff,
+            "invalid-category.csv",staffRows).Rows);
+        Assert.Equal(ImportRowStatus.Invalid,staffError.Status);
+        Assert.Contains("category",staffError.Message);
+
+        db.AddSchoolGrade(actor,school.Id,1,"أ");
+        var studentRows=Table(["school_code","student_code","full_name","grade","section",
+            "guardian_phone"],["A01","S001","طالب","1","أ","invalid-phone"]);
+        var studentError=Assert.Single(Plan(db,actor,ImportEntity.Students,
+            "invalid-phone.csv",studentRows).Rows);
+        Assert.Equal(ImportRowStatus.Invalid,studentError.Status);
+        Assert.Contains("guardian_phone",studentError.Message);
+    }
+
+    [Fact]
     public void InterruptedMultiRowWriteRollsBackAllRecordsLedgerAndAudit()
     {
         var path=Path.Combine(Path.GetTempPath(),"phase4-interrupt-"+Guid.NewGuid()+".db");
