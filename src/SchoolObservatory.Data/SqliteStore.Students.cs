@@ -182,7 +182,7 @@ public sealed partial class SqliteStore
     {
         using var cmd = Cmd(con, tx, """
             SELECT COALESCE(MAX(CAST(student_code AS INTEGER)),0)+1
-            FROM school_students
+            FROM student_school_codes
             WHERE school_id=$s AND length(student_code) BETWEEN 1 AND 9
               AND student_code NOT GLOB '*[^0-9]*'
             """, ("$s", schoolId));
@@ -191,7 +191,7 @@ public sealed partial class SqliteStore
             throw new InvalidOperationException("استنفدت الأرقام التلقائية لهذه المدرسة.");
         var code = number.ToString(CultureInfo.InvariantCulture);
         using var existing = Cmd(con, tx, """
-            SELECT EXISTS(SELECT 1 FROM school_students WHERE school_id=$s AND student_code=$code)
+            SELECT EXISTS(SELECT 1 FROM student_school_codes WHERE school_id=$s AND student_code=$code)
             """, ("$s", schoolId), ("$code", code));
         if (Convert.ToInt32(existing.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
             throw new InvalidOperationException("تعارض رمز الطالب التلقائي. راجع الرموز المدرسية.");
