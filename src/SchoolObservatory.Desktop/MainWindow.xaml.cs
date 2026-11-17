@@ -31,6 +31,9 @@ public partial class MainWindow : Window
         YearText.Text = $"العام الدراسي: {store.AcademicYear}";
         AddNav("لوحة التحكم", ShowDashboard);
         AddNav("دليل المدارس", ShowSchools);
+        if (_actor.IsOwner || (_actor.Role is Roles.Admin or Roles.Statistician &&
+            AccessPolicy.Has(_actor, PermissionFlags.ManageSchools)))
+            AddNav("إدارة الأعوام الدراسية", ShowAcademicYears);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewStaff))
             AddNav("كادر المدارس والسجلات", ShowStaff);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewStudents))
