@@ -233,7 +233,7 @@ public sealed partial class SqliteStore
 
     private static void ValidateAcademicYear(string year)
     {
-        if (!Regex.IsMatch(year ?? "", @"^\d{4}/\d{4}$") ||
+        if (string.IsNullOrWhiteSpace(year) || !Regex.IsMatch(year, @"^\d{4}/\d{4}$") ||
             !int.TryParse(year[..4], NumberStyles.None, CultureInfo.InvariantCulture, out var first) ||
             first < 1900 || first >= 9999 ||
             year[5..] != (first + 1).ToString("0000", CultureInfo.InvariantCulture))
