@@ -317,6 +317,21 @@ public static class DatabaseSecurity
                     if (IsPlaintext(candidate))
                         throw new CryptographicException("SQLCipher migration produced plaintext.");
                 }
+                // Keep a verified, encrypted pre-migration recovery point. This is
+                // separate from the original plaintext rollback, which must be securely retired.
+                var recoveryRoot = Path.Combine(Path.GetDirectoryName(db)!, "recovery");
+                SecureDirectory(recoveryRoot);
+                var encryptedSnapshot = Path.Combine(recoveryRoot,
+                    "before-encryption-" + DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmssfff", CultureInfo.InvariantCulture) +
+                    "-" + Guid.NewGuid().ToString("N") + ".db");
+                using (var saved = OpenEncrypted(encryptedSnapshot, key, create: true))
+                {
+                    source.BackupDatabase(saved);
+                    CompareAllRecords(source, saved);
+                    if (IsPlaintext(encryptedSnapshot))
+                        throw new CryptographicException("The recovery snapshot is not encrypted.");
+                }
+                SecureFile(encryptedSnapshot);
                 // Flush legacy WAL through SQLite itself; never copy/delete a live -wal file.
                 using var checkpoint = source.CreateCommand();
                 checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode=DELETE;";
