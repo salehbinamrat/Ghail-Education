@@ -31,10 +31,15 @@ public partial class MainWindow : Window
         YearText.Text = $"العام الدراسي: {store.AcademicYear}";
         AddNav("لوحة التحكم", ShowDashboard);
         AddNav("دليل المدارس", ShowSchools);
+        if (_actor.IsOwner || ((_actor.Role is Roles.Admin or Roles.Statistician) &&
+            AccessPolicy.Has(_actor, PermissionFlags.ManageSchools)))
+            AddNav("إدارة الأعوام الدراسية", ShowAcademicYears);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewStaff))
             AddNav("كادر المدارس والسجلات", ShowStaff);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewStudents))
             AddNav("الطلاب والصفوف", ShowStudents);
+        if (AccessPolicy.Has(actor, PermissionFlags.ManageStudents))
+            AddNav("ترحيل ونقل الطلاب", ShowStudentTransitions);
         if (AccessPolicy.Has(actor, PermissionFlags.EditCensus) || AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("إحصاء الطلاب والمعلمين", ShowCensus);
         if (AccessPolicy.Has(actor, PermissionFlags.ApproveSchool) || AccessPolicy.Has(actor, PermissionFlags.ApproveDistrict) || AccessPolicy.Has(actor, PermissionFlags.ReviewCensus)) AddNav("مراجعة واعتماد الإحصاء", ShowReviews);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("التقارير والتصدير", ShowReports);
