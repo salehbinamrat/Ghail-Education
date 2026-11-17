@@ -488,7 +488,7 @@ public sealed class AcademicHistoryPhase2Tests
         {
             using var command = check.CreateCommand();
             command.CommandText = "PRAGMA user_version;";
-            Assert.Equal(2L, Convert.ToInt64(command.ExecuteScalar()));
+            Assert.Equal(3L, Convert.ToInt64(command.ExecuteScalar()));
         }
         Assert.NotEmpty(Directory.GetFiles(
             System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path)!, "recovery"),
