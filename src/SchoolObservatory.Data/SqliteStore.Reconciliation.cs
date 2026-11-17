@@ -123,6 +123,10 @@ public sealed partial class SqliteStore
                  JOIN employee_assignments a ON a.employee_id=st.id
                  WHERE a.workplace_school_id=s.id AND st.is_active=1
                    AND a.assignment_type<>'إجازة'
+                   AND (a.start_date IS NOT NULL OR
+                        a.notes NOT IN ('سجل أصلي','سجل أصلي مرحل') OR
+                        EXISTS(SELECT 1 FROM staff_personnel_details p
+                               WHERE p.staff_id=st.id AND p.assignment_status='مباشر'))
                    AND (a.start_date IS NULL OR a.start_date<=$today)
                    AND (a.end_date IS NULL OR a.end_date>=$today)),
                 (SELECT COUNT(DISTINCT st.id) FROM school_staff st
@@ -133,6 +137,10 @@ public sealed partial class SqliteStore
                  JOIN employee_assignments a ON a.employee_id=st.id
                  WHERE a.workplace_school_id=s.id AND st.is_active=1
                    AND st.category='معلم' AND a.assignment_type<>'إجازة'
+                   AND (a.start_date IS NOT NULL OR
+                        a.notes NOT IN ('سجل أصلي','سجل أصلي مرحل') OR
+                        EXISTS(SELECT 1 FROM staff_personnel_details p
+                               WHERE p.staff_id=st.id AND p.assignment_status='مباشر'))
                    AND (a.start_date IS NULL OR a.start_date<=$today)
                    AND (a.end_date IS NULL OR a.end_date>=$today)),
                 (SELECT COUNT(*) FROM school_council_members c
