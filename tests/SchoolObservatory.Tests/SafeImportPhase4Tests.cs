@@ -412,4 +412,35 @@ public sealed class SafeImportPhase4Tests
         finally { File.Delete(file); }
     }
 
+    [Fact]
+    public void SparseExcelRowsKeepPhysicalRowNumbersThroughPreviewAndAudit()
+    {
+        var (db, actor, _) = New();
+        var file = Path.Combine(Path.GetTempPath(), "phase4-sparse-row-" +
+            Guid.NewGuid().ToString("N") + ".xlsx");
+        static string Cell(string position, string value) =>
+            $"<c r=\"{position}\" t=\"inlineStr\"><is><t>{value}</t></is></c>";
+        try
+        {
+            using (var archive = ZipFile.Open(file, ZipArchiveMode.Create))
+            using (var writer = new StreamWriter(
+                archive.CreateEntry("xl/worksheets/sheet1.xml").Open()))
+                writer.Write("<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">" +
+                    "<sheetData><row r=\"1\">" + Cell("A1","code") + Cell("B1","name") +
+                    Cell("C1","zone") + Cell("D1","ownership") + Cell("E1","stage") + "</row>" +
+                    "<row r=\"14\">" + Cell("A14","N014") + Cell("B14","مدرسة جديدة") +
+                    Cell("C14","القرية") + Cell("D14","حكومية") + Cell("E14","أساسي") +
+                    "</row></sheetData></worksheet>");
+            var source = ImportTableReader.Read(file);
+            var preview = Plan(db, actor, ImportEntity.Schools, "sparse.xlsx", source);
+            var item = Assert.Single(preview.Rows);
+            Assert.Equal(14, item.RowNumber);
+            Assert.Equal(ImportRowStatus.New, item.Status);
+            var applied = db.ApplyImport(actor, preview);
+            Assert.Equal(14, Assert.Single(db.GetImportBatchChanges(actor, applied.Id)).SourceRow);
+            Assert.Contains(db.GetSchools(actor), x => x.Code == "N014");
+        }
+        finally { File.Delete(file); }
+    }
+
 }
