@@ -47,6 +47,15 @@ public sealed class DistributionContractTests
     }
 
     [Fact]
+    public void PublishedPhaseOneReleaseNotesMustDescribeEncryptedStorage()
+    {
+        var workflow = File.ReadAllText(RootFile(".github", "workflows", "publish-downloads.yml"));
+        Assert.Contains("SQLCipher", workflow, StringComparison.Ordinal);
+        Assert.Contains("نسخة احتياطية مشفرة", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("قاعدة البيانات المحلية غير مشفرة", workflow, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PublicationRequiresSameMainCommitBothWorkflowsSucceeded()
     {
         var workflow = File.ReadAllText(RootFile(".github", "workflows", "publish-downloads.yml"));
