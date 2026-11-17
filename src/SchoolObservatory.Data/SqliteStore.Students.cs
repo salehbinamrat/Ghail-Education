@@ -139,11 +139,13 @@ public sealed partial class SqliteStore
         string schoolId, string studentId, string year)
     {
         using var cmd = Cmd(con, tx, """
-            SELECT EXISTS(SELECT 1 FROM student_enrollments en
-              JOIN school_students st ON st.id=en.student_id AND st.school_id=en.school_id
+            SELECT EXISTS(SELECT 1 FROM student_history en
+              JOIN school_students st ON st.id=en.student_id
               JOIN schools sc ON sc.id=en.school_id
+              JOIN academic_years ay ON ay.year=en.academic_year
               WHERE en.school_id=$s AND en.student_id=$student
                 AND en.academic_year=$year AND en.status='مسجل'
+                AND en.end_utc IS NULL AND ay.is_active=1 AND ay.is_closed=0
                 AND st.is_active=1 AND sc.is_active=1)
             """, ("$s", schoolId), ("$student", studentId), ("$year", year));
         if (Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture) != 1)
@@ -233,7 +235,7 @@ public sealed partial class SqliteStore
         string schoolId, string studentId)
     {
         using var cmd = Cmd(con, tx,
-            "SELECT EXISTS(SELECT 1 FROM school_students WHERE id=$id AND school_id=$s)",
+            "SELECT EXISTS(SELECT 1 FROM student_history WHERE student_id=$id AND school_id=$s)",
             ("$id", studentId), ("$s", schoolId));
         if (Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture) != 1)
             throw new UnauthorizedAccessException("الطالب غير موجود ضمن المدرسة المحددة.");
@@ -470,6 +472,9 @@ public sealed partial class SqliteStore
         using var cmd = Cmd(con, null, """
             SELECT id,student_id,academic_year,term,subject,score,maximum,notes
             FROM student_results WHERE school_id=$s AND student_id=$id
+            UNION ALL
+            SELECT id,student_id,academic_year,term,subject,score,maximum,notes
+            FROM transferred_student_results WHERE school_id=$s AND student_id=$id
             ORDER BY academic_year DESC,term,subject
             """, ("$s", schoolId), ("$id", studentId));
         using var r = cmd.ExecuteReader();
@@ -495,11 +500,15 @@ public sealed partial class SqliteStore
         using var tx = con.BeginTransaction();
         StudentBelongs(con, tx, schoolId, studentId);
         RequireEnrolledYear(con, tx, schoolId, studentId, year);
-        using var cmd = Cmd(con, tx, """
-            INSERT INTO student_results(id,student_id,school_id,academic_year,term,
+        var originalSchool = IsStudentOriginSchool(con, tx, studentId, schoolId);
+        var targetTable = originalSchool ? "student_results" : "transferred_student_results";
+        var uniqueKey = originalSchool ? "student_id,academic_year,term,subject" :
+            "student_id,school_id,academic_year,term,subject";
+        using var cmd = Cmd(con, tx, $"""
+            INSERT INTO {targetTable}(id,student_id,school_id,academic_year,term,
                 subject,score,maximum,notes,updated_utc)
             VALUES($rid,$student,$s,$year,$term,$subject,$score,$max,$notes,$at)
-            ON CONFLICT(student_id,academic_year,term,subject) DO UPDATE SET
+            ON CONFLICT({uniqueKey}) DO UPDATE SET
                 score=excluded.score,maximum=excluded.maximum,
                 notes=excluded.notes,updated_utc=excluded.updated_utc
             """, ("$rid", Id()), ("$student", studentId), ("$s", schoolId),
@@ -522,6 +531,9 @@ public sealed partial class SqliteStore
         using var cmd = Cmd(con, null, """
             SELECT id,student_id,academic_year,category,rating,notes,recorded_utc
             FROM student_assessments WHERE school_id=$s AND student_id=$id
+            UNION ALL
+            SELECT id,student_id,academic_year,category,rating,notes,recorded_utc
+            FROM transferred_student_assessments WHERE school_id=$s AND student_id=$id
             ORDER BY recorded_utc DESC LIMIT 500
             """, ("$s", schoolId), ("$id", studentId));
         using var r = cmd.ExecuteReader();
@@ -547,8 +559,10 @@ public sealed partial class SqliteStore
         using var tx = con.BeginTransaction();
         StudentBelongs(con, tx, schoolId, studentId);
         RequireEnrolledYear(con, tx, schoolId, studentId, year);
-        using var cmd = Cmd(con, tx, """
-            INSERT INTO student_assessments(id,student_id,school_id,academic_year,
+        var target = IsStudentOriginSchool(con, tx, studentId, schoolId) ?
+            "student_assessments" : "transferred_student_assessments";
+        using var cmd = Cmd(con, tx, $"""
+            INSERT INTO {target}(id,student_id,school_id,academic_year,
                 category,rating,notes,recorded_utc)
             VALUES($id,$student,$s,$y,$category,$rating,$notes,$at)
             """, ("$id", Id()), ("$student", studentId), ("$s", schoolId),
@@ -599,6 +613,9 @@ public sealed partial class SqliteStore
         using var cmd = Cmd(con, null, """
             SELECT id,student_id,attendance_date,status,notes
             FROM student_attendance WHERE school_id=$s AND student_id=$id
+            UNION ALL
+            SELECT id,student_id,attendance_date,status,notes
+            FROM transferred_student_attendance WHERE school_id=$s AND student_id=$id
             ORDER BY attendance_date DESC LIMIT 1000
             """, ("$s", schoolId), ("$id", studentId));
         using var r = cmd.ExecuteReader();
@@ -622,11 +639,15 @@ public sealed partial class SqliteStore
         using var tx = con.BeginTransaction();
         StudentBelongs(con, tx, schoolId, studentId);
         RequireEnrolledYear(con, tx, schoolId, studentId, year);
-        using var cmd = Cmd(con, tx, """
-            INSERT INTO student_attendance(id,student_id,school_id,attendance_date,
+        var transferred = !IsStudentOriginSchool(con, tx, studentId, schoolId);
+        var table = transferred ? "transferred_student_attendance" : "student_attendance";
+        var key = transferred ? "student_id,school_id,attendance_date" :
+            "student_id,attendance_date";
+        using var cmd = Cmd(con, tx, $"""
+            INSERT INTO {table}(id,student_id,school_id,attendance_date,
                 status,notes,updated_utc,academic_year)
             VALUES($id,$student,$s,$day,$status,$notes,$at,$year)
-            ON CONFLICT(student_id,attendance_date) DO UPDATE
+            ON CONFLICT({key}) DO UPDATE
             SET status=excluded.status,notes=excluded.notes,
                 updated_utc=excluded.updated_utc,academic_year=excluded.academic_year
             """, ("$id", Id()), ("$student", studentId), ("$s", schoolId),
