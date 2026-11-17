@@ -136,6 +136,8 @@ public sealed class AcademicYearPhase2Tests
         var student=store.GetStudents(owner, school.Id).Single();
         store.SaveStudentResult(owner, school.Id, student.Id, "الفصل الأول", "العلوم", 90, 100, "");
         store.TransitionStudent(owner, school.Id, student.Id, other.Id, 3, "ب", "school_transfer");
+        Assert.Throws<InvalidOperationException>(() =>
+            store.TransitionStudent(owner, school.Id, student.Id, other.Id, 3, "ب", "school_transfer"));
         Assert.Empty(store.GetStudents(owner, school.Id));
         Assert.Single(store.GetStudents(owner, other.Id));
         Assert.Equal(90, store.GetStudentResults(owner, school.Id, student.Id).Single().Score);
