@@ -227,6 +227,25 @@ public sealed class AcademicHistoryPhase2Tests
         Assert.Equal(70, Assert.Single(db.GetStudentResults(owner, a.Id, id)).Score);
     }
 
+
+    [Fact]
+    public void ClosedYearRostersStayQueryableAndSchoolScopedWithoutReactivatingThem()
+    {
+        var (db, owner, a, b, _) = Prepare();
+        var id = AddStudent(db, owner, a);
+        db.OpenAcademicYear(owner, "2027/2028");
+        db.ActivateAcademicYear(owner, "2027/2028");
+        db.CloseAcademicYear(owner, "2026/2027");
+        Assert.Empty(db.GetStudents(owner, a.Id));
+        var old = Assert.Single(db.GetHistoricalStudents(owner, a.Id, "2026/2027"));
+        Assert.Equal(id, old.Id);
+        Assert.Equal("2026/2027", old.AcademicYear);
+        Assert.Empty(db.GetHistoricalStudents(owner, b.Id, "2026/2027"));
+        db.CreateUser(owner, "archive-b", "School-user-safe-654321", Roles.Entry, b.Id);
+        var restricted = Assert.IsType<UserAccount>(db.Authenticate("archive-b", "School-user-safe-654321"));
+        Assert.Throws<UnauthorizedAccessException>(() => db.GetHistoricalStudents(restricted, a.Id, "2026/2027"));
+    }
+
     [Fact]
     public void MigrationKeepsExistingStudentStaffAndAuditWithoutChangingIds()
     {
