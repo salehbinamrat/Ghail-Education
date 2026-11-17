@@ -181,6 +181,39 @@ public sealed class SafeImportPhase4Tests
     }
 
     [Fact]
+    public void EncryptedVersionFourUpgradePreservesStudentIdentityAndHistoricalResults()
+    {
+        var path=Path.Combine(Path.GetTempPath(),"phase4-upgrade-"+Guid.NewGuid()+".db");
+        var db=new SqliteStore(path);
+        db.Initialize();
+        db.InitializeAdministrator("غيل بن يمين","2026/2027","founder","Strong-Founder-Password-123!");
+        var actor=db.Authenticate("founder","Strong-Founder-Password-123!")!;
+        db.AddSchool(actor,"MIG1","مدرسة اختبار","القرية","حكومية","أساسي","ذكور");
+        var school=Assert.Single(db.GetSchools(actor));
+        db.AddSchoolGrade(actor,school.Id,1,"أ");
+        db.SaveStudent(actor,new SchoolStudent("",school.Id,"100","طالب",1,"أ","","","","",true,"2026/2027"));
+        var student=Assert.Single(db.GetStudents(actor,school.Id));
+        db.SaveStudentResult(actor,school.Id,student.Id,"الفصل الأول","عربي",88,100,"");
+        using(var connection=DatabaseSecurity.OpenForRegressionTest(path))
+        using(var version=connection.CreateCommand())
+        {
+            version.CommandText="PRAGMA user_version=4;";
+            version.ExecuteNonQuery();
+        }
+        db.Initialize();
+        Assert.Equal(student.Id,Assert.Single(db.GetStudents(actor,school.Id)).Id);
+        Assert.Single(db.GetStudentResults(actor,school.Id,student.Id));
+        using(var connection=DatabaseSecurity.OpenForRegressionTest(path))
+        using(var version=connection.CreateCommand())
+        {
+            version.CommandText="PRAGMA user_version;";
+            Assert.Equal(5L,Convert.ToInt64(version.ExecuteScalar()));
+        }
+        Assert.NotEmpty(Directory.GetFiles(Path.Combine(Path.GetDirectoryName(path)!,"recovery"),
+            "before-schema-*.db"));
+    }
+
+    [Fact]
     public void PreviewShowsOldNewAndBlankCellsDoNotEraseExistingValues()
     {
         var (db, actor, school) = New();
