@@ -10,6 +10,13 @@ on:
 permissions:
   contents: read
 
+# Pull-request and branch-push events may run for the same commit; keep only
+# the newest attempt of each workflow on a branch. Core and Release have
+# different workflow names and therefore continue running independently.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   core-tests:
     name: Core / build-and-test
