@@ -138,11 +138,15 @@ public partial class MainWindow
         }), canEditDetails, "success"));
         root.Children.Add(Box(info));
 
+        // The council is a first-class school record; the same school key drives
+        // the directory detail and the live district counters.
+        AddCouncilEditor(root, school);
+
         if (AccessPolicy.CanSeeStudents(_actor, schoolId))
         {
             var students = _store.GetStudents(_actor, schoolId);
             var grades = _store.GetSchoolGrades(_actor, schoolId);
-            var pupils = students.GroupBy(s => (s.Grade, s.Section))
+            var pupils = students.Where(s => s.IsActive).GroupBy(s => (s.Grade, s.Section))
                 .ToDictionary(g => g.Key, g => g.Count());
             var summaryGrades = grades.Select(g => new
             {
@@ -151,7 +155,7 @@ public partial class MainWindow
             }).ToArray();
             var section = Stack();
             section.Children.Add(Label("كشوف الصفوف والشعب", 18, true));
-            section.Children.Add(Label($"عدد الطلاب المسجلين في العام الحالي: {students.Count}، عدد الكشوف: {grades.Count}.", 14));
+            section.Children.Add(Label($"الطلاب النشطون في العام الحالي: {students.Count(s => s.IsActive)}، عدد الكشوف والشعب: {grades.Count}.", 14));
             section.Children.Add(GridFor(summaryGrades, ("الصف والشعبة", "ClassName", false),
                 ("عدد الطلاب", "Count", false)));
             section.Children.Add(Btn("فتح كشوف الطلاب وملفاتهم", (_, _) =>
@@ -164,9 +168,9 @@ public partial class MainWindow
             var staff = _store.GetSchoolStaff(_actor, schoolId);
             var section = Stack();
             section.Children.Add(Label("الكادر المدرسي — انقر مرتين لفتح الملف الوظيفي", 18, true));
-            section.Children.Add(Label($"المعلمون: {staff.Count(s => s.Category == "معلم")} | " +
-                $"الإداريون: {staff.Count(s => s.Category == "إداري")} | " +
-                $"الأخصائيون: {staff.Count(s => s.Category == "أخصائي اجتماعي")}", 14));
+            section.Children.Add(Label($"المعلمون النشطون: {staff.Count(s => s.IsActive && s.Category == "معلم")} | " +
+                $"الإداريون النشطون: {staff.Count(s => s.IsActive && s.Category == "إداري")} | " +
+                $"الأخصائيون النشطون: {staff.Count(s => s.IsActive && s.Category == "أخصائي اجتماعي")}", 14));
             var grid = GridFor(staff,
                 ("الاسم", "FullName", false), ("الرقم الوظيفي", "EmployeeCode", false),
                 ("الفئة", "Category", false), ("المسمى", "JobTitle", false),
@@ -179,9 +183,28 @@ public partial class MainWindow
                     Safe(() => ShowStaffProfile(schoolId, item.Id));
             };
             section.Children.Add(grid);
+            var canEditStaff = AccessPolicy.CanEditStaff(_actor, schoolId);
+            section.Children.Add(Btn("حذف الموظف من الكشوف (أرشفة)", (_, _) => Safe(() =>
+            {
+                if (grid.SelectedItem is not SchoolStaff target)
+                    throw new InvalidOperationException("حدد الموظف المطلوب أرشفته.");
+                if (MessageBox.Show("سيُستبعد من الأعداد المباشرة مع الحفاظ على ملفه وسجله الوظيفي. هل تؤكد؟",
+                    "تأكيد أرشفة الموظف", MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+                _store.SaveSchoolStaff(_actor, target with { IsActive = false });
+                ShowSchoolProfile(school.Id);
+            }), canEditStaff, "danger"));
+            section.Children.Add(Btn("استعادة الموظف المؤرشف", (_, _) => Safe(() =>
+            {
+                if (grid.SelectedItem is not SchoolStaff target)
+                    throw new InvalidOperationException("حدد الموظف المراد استعادته.");
+                _store.SaveSchoolStaff(_actor, target with { IsActive = true });
+                ShowSchoolProfile(school.Id);
+            }), canEditStaff, "secondary"));
             section.Children.Add(Btn("فتح كادر المدرسة وإضافة موظفين", (_, _) =>
                 ShowStaffCore(schoolId), tone: "secondary"));
             root.Children.Add(Box(section));
+            AddQuickStaffEditor(root, school);
         }
         Display("ملف المدرسة", root);
     }
