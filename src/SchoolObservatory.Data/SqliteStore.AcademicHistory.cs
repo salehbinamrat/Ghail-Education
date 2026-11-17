@@ -450,6 +450,9 @@ public sealed partial class SqliteStore
             if (Convert.ToInt32(duplicate.ExecuteScalar(), CultureInfo.InvariantCulture)>0)
                 throw new InvalidOperationException("Student already has a year transition.");
         }
+        var destination = StudentSchool(con, tx, targetSchoolId);
+        GradeAllowed(destination, targetGrade);
+        _ = StudentGender(destination, gender);
         var targetId = GradeId(con, tx, targetSchoolId, year, targetGrade, SectionName(targetSection));
         var destStudentId = studentId;
         if (schoolId != targetSchoolId)
