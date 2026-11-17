@@ -194,6 +194,14 @@ public sealed partial class SqliteStore
         return Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
+    private static int CountYearIntegrity(SqliteConnection con, SqliteTransaction tx,
+        string schoolId, string academicYear, string sql)
+    {
+        using var cmd = Cmd(con, tx, sql,
+            ("$school", schoolId), ("$year", academicYear));
+        return Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
     /// <summary>
     /// All schools are compared within one SQLite read transaction. Missing approved
     /// census is NULL, not zero. Past years retain student and section history, but
@@ -243,7 +251,10 @@ public sealed partial class SqliteStore
                 approved[Text(r, 0)] = (Text(r, 1), Count64(r, 2),
                     Count64(r, 3), Count64(r, 4), Count64(r, 5), Count64(r, 6));
 
-        var isCurrent = academicYear == AcademicYear;
+        string currentAcademicYear;
+        using (var current = Cmd(con, tx, "SELECT value FROM settings WHERE key='academic_year'"))
+            currentAcademicYear = current.ExecuteScalar()?.ToString() ?? "";
+        var isCurrent = academicYear == currentAcademicYear;
         var today = DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var results = new List<CensusReconciliationRow>();
         foreach (var schoolId in schools)
@@ -304,6 +315,55 @@ public sealed partial class SqliteStore
                     hasOfficial ? censusGrades.GetValueOrDefault(grade) : null,
                     "مقارنة كشف الصف المحسوب من القيد الحقيقي مع صف الاستمارة المعتمدة.");
             }
+
+            // Detect bad foreign-key relationships, out-of-year grade placements,
+            // repeated active enrollment, and false secondments. Never repair
+            // identity or assignment history by guessing at its intended school.
+            var orphanPlacements = CountYearIntegrity(con, tx, schoolId, academicYear, """
+                SELECT COUNT(*) FROM student_history h
+                LEFT JOIN school_students st ON st.id=h.student_id
+                LEFT JOIN school_grades g ON g.id=h.grade_id
+                    AND g.school_id=h.school_id AND g.academic_year=h.academic_year
+                LEFT JOIN academic_years ay ON ay.year=h.academic_year
+                WHERE h.school_id=$school AND h.academic_year=$year
+                  AND (st.id IS NULL OR g.id IS NULL OR ay.year IS NULL)
+                """);
+            Add("integrity.student_reference", "قيود دراسية بمراجع غير صالحة",
+                orphanPlacements, 0, "المستهدف صفر؛ فحص مراجع الطالب والصف والسنة وليس قيمة Census معتمدة.");
+            var duplicateActivePlacements = CountYearIntegrity(con, tx, schoolId, academicYear, """
+                SELECT COUNT(*) FROM (
+                    SELECT h.student_id FROM student_history h
+                    WHERE h.academic_year=$year AND h.status='مسجل' AND h.end_utc IS NULL
+                    GROUP BY h.student_id HAVING COUNT(*)>1
+                ) broken WHERE EXISTS (
+                    SELECT 1 FROM student_history h
+                    WHERE h.student_id=broken.student_id AND h.school_id=$school
+                      AND h.academic_year=$year AND h.status='مسجل' AND h.end_utc IS NULL)
+                """);
+            Add("integrity.student_active_duplicate", "طلاب بقيود نشطة مكررة",
+                duplicateActivePlacements, 0,
+                "المستهدف صفر؛ يحمي الإحصاء من مضاعفة الطالب أثناء النقل أو الترفيع.");
+            var invalidAssignments = CountIntegrity(con, tx, schoolId, """
+                SELECT COUNT(*) FROM employee_assignments a
+                LEFT JOIN employee_identities e ON e.id=a.employee_id
+                LEFT JOIN schools work ON work.id=a.workplace_school_id
+                LEFT JOIN schools payroll ON payroll.id=a.payroll_school_id
+                WHERE (a.payroll_school_id=$school OR e.original_payroll_school_id=$school)
+                  AND (e.id IS NULL OR payroll.id IS NULL OR work.id IS NULL
+                       OR a.payroll_school_id<>e.original_payroll_school_id
+                       OR (a.start_date IS NOT NULL AND a.end_date IS NOT NULL
+                           AND a.start_date>a.end_date)
+                       OR EXISTS(
+                          SELECT 1 FROM employee_assignments other
+                          WHERE other.employee_id=a.employee_id AND other.id<>a.id
+                            AND COALESCE(a.start_date,'0001-01-01')
+                               <= COALESCE(other.end_date,'9999-12-31')
+                            AND COALESCE(other.start_date,'0001-01-01')
+                               <= COALESCE(a.end_date,'9999-12-31')))
+                """);
+            Add("integrity.staff_assignment", "تكليف غير صحيح أو متداخل",
+                invalidAssignments, 0,
+                "المستهدف صفر؛ لا يحذف النظام التكليف غير المتسق ولا ينقل هوية الموظف آليا.");
 
             // Legacy inconsistencies remain visible rather than being merged by name.
             var invalidIdentity = CountIntegrity(con, tx, schoolId, """
