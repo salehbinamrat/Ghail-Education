@@ -330,6 +330,15 @@ public static class DatabaseSecurity
             using (var source = OpenPlaintext(db))
             {
                 VerifyIntegrity(source);
+                // Refuse an unknown future schema before writing an encryption candidate
+                // or retiring the legacy plaintext file. Its current owner must use a
+                // compatible newer application, not silently downgrade its metadata.
+                using (var version = source.CreateCommand())
+                {
+                    version.CommandText = "PRAGMA user_version;";
+                    if (Convert.ToInt32(version.ExecuteScalar(), CultureInfo.InvariantCulture) > 1)
+                        throw new InvalidDataException("Cannot migrate a database created by a newer unsupported application version.");
+                }
                 // SQLite3MC cannot use sqlite3_backup across plaintext/encrypted databases.
                 // VACUUM INTO produces a consistent online snapshot INCLUDING committed WAL.
                 // SQLCipher is activated directly for the target URI: no plaintext staging copy.
