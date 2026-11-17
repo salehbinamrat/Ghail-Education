@@ -52,7 +52,7 @@ public sealed class LinkedDirectoryAndCouncilsTests
             created with { SchoolId = second.Id }));
         Assert.Throws<UnauthorizedAccessException>(() => db.SetParentCouncilMemberActive(owner, second.Id, created.Id, false));
         db.SetParentCouncilMemberActive(owner, first.Id, created.Id, false);
-        Assert.Empty(db.GetParentCouncilMembers(owner, first.Id).Where(x => x.IsActive));
+        Assert.DoesNotContain(db.GetParentCouncilMembers(owner, first.Id), x => x.IsActive);
         Assert.Single(db.GetParentCouncilMembers(owner, first.Id)); // archived, not erased
         db.SetParentCouncilMemberActive(owner, first.Id, created.Id, true);
         Assert.True(Assert.Single(db.GetParentCouncilMembers(owner, first.Id)).IsActive);
@@ -91,7 +91,7 @@ public sealed class LinkedDirectoryAndCouncilsTests
         live = db.GetLiveDirectoryTotals(owner);
         Assert.Equal(1, live.ActiveStudents);
         Assert.Equal(0, live.ActiveTeachers);
-        Assert.Single(db.GetStudents(owner, school.Id).Where(s => !s.IsActive));
+        Assert.Single(db.GetStudents(owner, school.Id), s => !s.IsActive);
     }
 
     [Fact]
