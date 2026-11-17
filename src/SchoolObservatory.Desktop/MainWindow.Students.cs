@@ -11,15 +11,17 @@ namespace SchoolObservatory.Desktop;
 
 public partial class MainWindow
 {
-    private sealed record StudentRosterItem(SchoolStudent Student)
+    private sealed record StudentRosterItem(SchoolStudent Student, string Stage)
     {
         public string StudentCode => Student.StudentCode;
         public string FullName => Student.FullName;
-        public int Grade => Student.Grade;
+        public string GradeName => GradeNames.ForStage(Stage, Student.Grade);
         public string Section => Student.Section;
         public string GuardianName => Student.GuardianName;
         public string StatusArabic => Student.IsActive ? "مسجل" : "غير نشط";
     }
+
+    private sealed record GradeChoice(int Number, string Label);
 
     private static ComboBox Choice(IEnumerable<string> items, double width = 160)
     {
@@ -86,7 +88,7 @@ public partial class MainWindow
         var roster = GridFor(Array.Empty<StudentRosterItem>(),
             ("رمز الطالب", "StudentCode", false),
             ("اسم الطالب — انقر مرتين لفتح ملفه", "FullName", false),
-            ("الصف", "Grade", false), ("الشعبة", "Section", false),
+            ("المرحلة / الصف", "GradeName", false), ("الشعبة", "Section", false),
             ("ولي الأمر", "GuardianName", false), ("الحالة", "StatusArabic", false));
         roster.MaxHeight = 480;
         root.Children.Add(Box(roster));
@@ -111,7 +113,7 @@ public partial class MainWindow
             foreach (var student in students)
             {
                 var cells = new List<string> { student.StudentCode, student.FullName,
-                    student.Grade.ToString(CultureInfo.InvariantCulture), student.Section,
+                    GradeNames.ForStage(school.Stage, student.Grade), student.Section,
                     student.GuardianName, student.GuardianPhone,
                     student.IsActive ? "مسجل" : "غير نشط" };
                 if (school.Gender == "مختلطة") cells.Add(student.Gender);
@@ -139,7 +141,7 @@ public partial class MainWindow
             var document = new FlowDocument
             {
                 FlowDirection = FlowDirection.RightToLeft,
-                FontFamily = new FontFamily("Segoe UI"),
+                FontFamily = new FontFamily("Arial"),
                 FontSize = 11,
                 PageWidth = width,
                 PageHeight = height,
@@ -206,7 +208,7 @@ public partial class MainWindow
                 var cells = new List<string>
                 {
                     (i + 1).ToString(CultureInfo.InvariantCulture), student.StudentCode,
-                    student.FullName, student.Grade.ToString(CultureInfo.InvariantCulture),
+                    student.FullName, GradeNames.ForStage(school.Stage, student.Grade),
                     student.Section
                 };
                 if (school.Gender == "مختلطة") cells.Add(student.Gender);
@@ -225,7 +227,7 @@ public partial class MainWindow
         }), false, "secondary");
         root.Children.Add(printRoster);
         var editor = Stack();
-        editor.Children.Add(Label("إضافة طالب إلى الصف والشعبة المختارين", 17, true));
+        editor.Children.Add(Label("إضافة طالب جديد إلى الكشف المحدد. لتصحيح اسم طالب موجود افتح ملفه من الجدول.", 17, true));
         var studentCode = Field(width: 170);
         var fullName = Field(width: 275);
         var guardianName = Field(width: 235);
@@ -284,7 +286,7 @@ public partial class MainWindow
             var students = rosterCache;
             var filter = search.Text.Trim();
             var visible = SchoolStudentSearch.Find(students, filter);
-            roster.ItemsSource = visible.Select(s => new StudentRosterItem(s)).ToArray();
+            roster.ItemsSource = visible.Select(s => new StudentRosterItem(s, selectedSchool.Stage)).ToArray();
             selectedCount.Text = filter.Length == 0
                 ? $"عدد الطلاب في الكشف: {students.Count}"
                 : $"نتائج البحث: {visible.Count} من أصل {students.Count} طالب";
@@ -294,20 +296,42 @@ public partial class MainWindow
             printRoster.IsEnabled = editor.IsEnabled;
         }
 
-        var newGrade = Choice(Enumerable.Range(1, 12).Select(x => x.ToString(CultureInfo.InvariantCulture)), 100);
+        var newGrade = new ComboBox
+        {
+            Width = 215, DisplayMemberPath = "Label",
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
         var newSection = Field("أ", 90);
         var newGradePanel = Stack();
-        newGradePanel.Children.Add(Label("إضافة صف وشعبة لهذه المدرسة", 16, true));
-        newGradePanel.Children.Add(LineOfFields(("الصف", newGrade), ("الشعبة", newSection)));
+        newGradePanel.Children.Add(Label("إضافة كشف أو تصحيح الصف والشعبة المحددين دون حذف الطلاب", 16, true));
+        newGradePanel.Children.Add(LineOfFields(("المرحلة / الصف", newGrade), ("الشعبة", newSection)));
         newGradePanel.Children.Add(Btn("إضافة الصف والشعبة", (_, _) => Safe(() =>
         {
             if (schoolPicker.SelectedItem is not School school) return;
+            if (newGrade.SelectedItem is not GradeChoice selectedGrade)
+                throw new InvalidOperationException("اختر المرحلة والصف أولا.");
             var created = _store.AddSchoolGrade(_actor, school.Id,
-                int.Parse(newGrade.SelectedItem?.ToString() ?? "0", CultureInfo.InvariantCulture),
-                newSection.Text);
+                selectedGrade.Number, newSection.Text);
             RefillGrades(created.Id);
             Info("تم إنشاء الكشف الدراسي بنجاح.");
         }), tone: "success"));
+        newGradePanel.Children.Add(Btn("تعديل الصف والشعبة", (_, _) => Safe(() =>
+        {
+            if (schoolPicker.SelectedItem is not School school ||
+                gradePicker.SelectedItem is not SchoolGrade current ||
+                newGrade.SelectedItem is not GradeChoice selected)
+                throw new InvalidOperationException("حدد كشف الصف والشعبة المطلوب تصحيحه أولا.");
+            var enrolled = _store.GetStudents(_actor, school.Id, current.Id).Count;
+            if (enrolled > 0 && MessageBox.Show(
+                $"سيتم تغيير اسم الصف أو شعبته مع بقاء {enrolled} طالبا في الكشف نفسه، دون حذف ملفاتهم أو نتائجهم. هل تؤكد التصحيح؟",
+                "تأكيد تصحيح الكشف", MessageBoxButton.YesNo,
+                MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                return;
+            _store.UpdateSchoolGrade(_actor, school.Id, current.Id,
+                selected.Number, newSection.Text);
+            RefillGrades(current.Id);
+            Info("تم تصحيح الصف والشعبة مع الحفاظ على سجلات الطلاب.");
+        }), tone: "warning"));
         root.Children.Add(Box(newGradePanel));
 
         bool suppressGradeSelection = false;
@@ -336,14 +360,15 @@ public partial class MainWindow
             }
             finally { suppressGradeSelection = false; }
             newGradePanel.IsEnabled = AccessPolicy.CanManageStudents(_actor, school.Id);
-            var options = school.Stage switch
-            {
-                "أساسي" => Enumerable.Range(1, 9),
-                "ثانوي" => Enumerable.Range(10, 3),
-                _ => Enumerable.Range(1, 12)
-            };
-            newGrade.ItemsSource = options.Select(x => x.ToString(CultureInfo.InvariantCulture)).ToArray();
-            newGrade.SelectedIndex = 0;
+            var options = GradeNames.Allowed(school.Stage)
+                .Select(n => new GradeChoice(n, GradeNames.ForStage(school.Stage, n)))
+                .ToArray();
+            newGrade.ItemsSource = options;
+            newGrade.SelectedItem = gradePicker.SelectedItem is SchoolGrade picked
+                ? options.FirstOrDefault(x => x.Number == picked.Grade)
+                : options.FirstOrDefault();
+            newSection.Text = gradePicker.SelectedItem is SchoolGrade selected
+                ? selected.Section : "أ";
             genderField.Visibility = school.Gender == "مختلطة" ? Visibility.Visible : Visibility.Collapsed;
             ResetEditor();
             RefreshRoster();
@@ -357,6 +382,12 @@ public partial class MainWindow
         {
             if (suppressGradeSelection) return;
             ClearSearch(); ResetEditor(); RefreshRoster();
+            if (gradePicker.SelectedItem is SchoolGrade current)
+            {
+                newGrade.SelectedItem = (newGrade.ItemsSource as IEnumerable<GradeChoice>)
+                    ?.FirstOrDefault(x => x.Number == current.Grade);
+                newSection.Text = current.Section;
+            }
         });
         void OpenSelectedStudent()
         {
@@ -415,7 +446,7 @@ public partial class MainWindow
                 if (dialog.ShowDialog() != true) return;
                 var rows = await Task.Run(() => StudentImportParser.Parse(dialog.FileName));
                 var byGrade = rows.GroupBy(x => (x.Grade, x.Section))
-                    .Select(g => $"الصف {g.Key.Grade} / {g.Key.Section}: {g.Count()} طالب")
+                    .Select(g => $"{GradeNames.ForStage(school.Stage, g.Key.Grade)} / الشعبة {g.Key.Section}: {g.Count()} طالب")
                     .Take(12);
                 var message = $"المدرسة المحددة: {school.Name}\nعدد السجلات: {rows.Count}\n" +
                     string.Join("\n", byGrade) +
@@ -460,7 +491,7 @@ public partial class MainWindow
         root.Children.Add(Btn("العودة إلى كشوف الصفوف", (_, _) =>
             ShowStudentsCore(school.Id, student.Grade, student.Section), tone: "secondary"));
         root.Children.Add(Label($"ملف الطالب: {student.FullName}", 21, true));
-        root.Children.Add(Label($"الرقم المدرسي: {student.StudentCode}  |  الصف {student.Grade} / {student.Section}" +
+        root.Children.Add(Label($"الرقم المدرسي: {student.StudentCode}  |  {GradeNames.ForStage(school.Stage, student.Grade)} / الشعبة {student.Section}" +
             $"  |  العام الدراسي: {student.AcademicYear}", 14));
         if (!student.IsActive)
         {
@@ -528,7 +559,7 @@ public partial class MainWindow
         tabs.Items.Add(new TabItem { Header = "الملف الأساسي", Content = Box(personal) });
 
         var results = Stack();
-        results.Children.Add(Label("النتائج الدراسية حسب المادة والفصل والسنة", 17, true));
+        results.Children.Add(Label("النتائج الدراسية: اختر نتيجة من العام الحالي لتعديل درجتها أو ملاحظاتها ثم احفظ.", 17, true));
         var resultsGrid = GridFor(Array.Empty<StudentResult>(),
             ("السنة", "AcademicYear", false), ("الفصل", "Term", false),
             ("المادة", "Subject", false), ("الدرجة", "Score", false),
@@ -539,6 +570,18 @@ public partial class MainWindow
         var score = Field(width: 90);
         var maximum = Field("100", 90);
         var resultNote = Field(width: 230);
+        resultNote.MaxLength = 1000;
+        // Click a current-year record to correct its value instead of adding a duplicate.
+        resultsGrid.SelectionChanged += (_, _) =>
+        {
+            if (resultsGrid.SelectedItem is not StudentResult selected ||
+                selected.AcademicYear != _store.AcademicYear) return;
+            term.SelectedItem = selected.Term;
+            subject.Text = selected.Subject;
+            score.Text = selected.Score.ToString(CultureInfo.InvariantCulture);
+            maximum.Text = selected.Maximum.ToString(CultureInfo.InvariantCulture);
+            resultNote.Text = selected.Notes;
+        };
         var canEvaluate = student.IsActive &&
             AccessPolicy.CanManageStudentEvaluation(_actor, school.Id);
         var resultEditor = LineOfFields(("الفصل الدراسي", term), ("المادة", subject),
@@ -557,7 +600,7 @@ public partial class MainWindow
         tabs.Items.Add(new TabItem { Header = "النتائج", Content = Box(results) });
 
         var assessment = Stack();
-        assessment.Children.Add(Label("التقييم التربوي والسلوك والمواظبة", 17, true));
+        assessment.Children.Add(Label("التقييم التربوي: يمكن إضافة تقييم جديد أو تحديد تقييم من العام الحالي وتصحيحه.", 17, true));
         var assessmentsGrid = GridFor(Array.Empty<StudentAssessment>(),
             ("الفئة", "Category", false), ("التقدير", "Rating", false),
             ("الملاحظات", "Notes", false), ("التاريخ", "RecordedAt", false));
@@ -565,6 +608,15 @@ public partial class MainWindow
         var category = Choice(new[] { "المشاركة", "السلوك", "المواظبة", "المهارات", "التقييم العام" }, 170);
         var rating = Choice(new[] { "ممتاز", "جيد جدا", "جيد", "مقبول", "يحتاج متابعة" }, 155);
         var assessmentNote = Field(width: 300);
+        assessmentNote.MaxLength = 1000;
+        assessmentsGrid.SelectionChanged += (_, _) =>
+        {
+            if (assessmentsGrid.SelectedItem is not StudentAssessment selected ||
+                selected.AcademicYear != _store.AcademicYear) return;
+            category.SelectedItem = selected.Category;
+            rating.SelectedItem = selected.Rating;
+            assessmentNote.Text = selected.Notes;
+        };
         var assessmentEditor = LineOfFields(("المجال", category), ("التقدير", rating),
             ("ملاحظات المعلم / الأخصائي", assessmentNote));
         assessmentEditor.IsEnabled = canEvaluate;
@@ -576,16 +628,37 @@ public partial class MainWindow
                 assessmentNote.Text);
             Info("تم حفظ تقييم الطالب."); ShowStudentProfile(school, studentId, 2);
         }), canEvaluate, "purple"));
+        assessment.Children.Add(Btn("حفظ تصحيح التقييم المحدد", (_, _) => Safe(() =>
+        {
+            if (assessmentsGrid.SelectedItem is not StudentAssessment selected)
+                throw new InvalidOperationException("حدد التقييم المطلوب تصحيحه من الجدول.");
+            if (selected.AcademicYear != _store.AcademicYear)
+                throw new InvalidOperationException("التقييم التاريخي متاح للقراءة فقط.");
+            _store.UpdateStudentAssessment(_actor, school.Id, student.Id, selected.Id,
+                category.SelectedItem?.ToString() ?? "",
+                rating.SelectedItem?.ToString() ?? "", assessmentNote.Text);
+            Info("تم تصحيح التقييم دون تغيير ملف الطالب."); ShowStudentProfile(school, studentId, 2);
+        }), canEvaluate, "warning"));
         tabs.Items.Add(new TabItem { Header = "التقييمات", Content = Box(assessment) });
 
         var attendance = Stack();
-        attendance.Children.Add(Label("الحضور والغياب والتأخر والأعذار", 17, true));
+        attendance.Children.Add(Label("الحضور والغياب: اختر تاريخا جديدا أو حدد سجلا سابقا لتصحيح الحالة وملاحظاتها.", 17, true));
         var attendanceGrid = GridFor(Array.Empty<StudentAttendance>(),
             ("اليوم", "Date", false), ("الحالة", "Status", false), ("ملاحظات", "Notes", false));
         attendance.Children.Add(Box(attendanceGrid));
         var date = new DatePicker { SelectedDate = DateTime.Today, Width = 160 };
         var state = Choice(new[] { "حاضر", "غائب", "متأخر", "بعذر" }, 145);
         var attendanceNote = Field(width: 270);
+        attendanceNote.MaxLength = 400;
+        attendanceGrid.SelectionChanged += (_, _) =>
+        {
+            if (attendanceGrid.SelectedItem is not StudentAttendance selected) return;
+            if (DateTime.TryParseExact(selected.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var selectedDay))
+                date.SelectedDate = selectedDay;
+            state.SelectedItem = selected.Status;
+            attendanceNote.Text = selected.Notes;
+        };
         var attendanceEditor = LineOfFields(("التاريخ", date), ("حالة الحضور", state),
             ("ملاحظات", attendanceNote));
         attendanceEditor.IsEnabled = canEvaluate;

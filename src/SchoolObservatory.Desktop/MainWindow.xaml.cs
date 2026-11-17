@@ -57,39 +57,76 @@ public partial class MainWindow : Window
         Statuses.Returned => "أعيدت للتصحيح", _ => status
     };
 
+    private readonly Dictionary<Button, Brush> _navBaseColors = new();
+
     private void AddNav(string text, Action action)
     {
         var menuColor = text switch
         {
-            "لوحة التحكم" => Color.FromRgb(11, 102, 161),
-            "الطلاب والصفوف" => Color.FromRgb(0, 154, 163),
-            "إدارة المستخدمين" => Color.FromRgb(97, 83, 158),
-            "التقارير والتصدير" => Color.FromRgb(2, 123, 147),
-            "سجل العمليات" => Color.FromRgb(52, 100, 120),
-            _ => Color.FromRgb(8, 109, 143)
+            "لوحة التحكم" => Color.FromRgb(10, 88, 150),
+            "الطلاب والصفوف" => Color.FromRgb(4, 108, 123),
+            "إدارة المستخدمين" => Color.FromRgb(79, 67, 143),
+            "التقارير والتصدير" => Color.FromRgb(3, 99, 137),
+            "سجل العمليات" => Color.FromRgb(48, 86, 116),
+            _ => Color.FromRgb(7, 88, 130)
         };
         var button = new Button
         {
-            Content = text, Background = new SolidColorBrush(menuColor),
-            BorderThickness = new Thickness(1), BorderBrush = new SolidColorBrush(Color.FromRgb(50, 155, 180)),
+            Content = new TextBlock
+            {
+                Text = text, TextWrapping = TextWrapping.Wrap,
+                FontFamily = new FontFamily("Arial"), FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brushes.White, TextAlignment = TextAlignment.Right
+            },
+            Tag = text,
+            Background = new SolidColorBrush(menuColor),
+            Foreground = Brushes.White,
+            BorderThickness = new Thickness(1),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(87, 153, 183)),
             HorizontalContentAlignment = HorizontalAlignment.Right,
-            Padding = new Thickness(14, 11, 14, 11), Margin = new Thickness(2, 4, 2, 4),
-            MinHeight = 46
+            Padding = new Thickness(12, 10, 12, 10),
+            Margin = new Thickness(2, 4, 2, 4),
+            MinHeight = 48,
+            ToolTip = text
         };
-        button.Click += (_, _) =>
-        {
-            foreach (var sibling in NavPanel.Children.OfType<Button>())
-                sibling.Opacity = 0.85;
-            button.Opacity = 1;
-            Safe(action);
-        };
+        _navBaseColors[button] = button.Background;
+        button.Click += (_, _) => Safe(action);
         NavPanel.Children.Add(button);
+    }
+
+    private void UpdateActiveNavigation(string title)
+    {
+        var key = title switch
+        {
+            "ملف الطالب" => "الطلاب والصفوف",
+            "المراجعة والاعتماد" => "مراجعة واعتماد الإحصاء",
+            "إدارة المسؤولين والمستخدمين" => "إدارة المستخدمين",
+            _ => title
+        };
+        foreach (var entry in _navBaseColors)
+        {
+            var selected = string.Equals(entry.Key.Tag as string, key,
+                StringComparison.Ordinal);
+            entry.Key.Background = selected
+                ? new SolidColorBrush(Color.FromRgb(21, 94, 203))
+                : entry.Value;
+            entry.Key.BorderBrush = selected
+                ? new SolidColorBrush(Color.FromRgb(255, 208, 106))
+                : new SolidColorBrush(Color.FromRgb(87, 153, 183));
+            entry.Key.BorderThickness = selected
+                ? new Thickness(4, 1, 1, 1)
+                : new Thickness(1);
+            entry.Key.FontWeight = selected ? FontWeights.Bold : FontWeights.Normal;
+            entry.Key.Opacity = selected ? 1 : 0.93;
+        }
     }
 
     private void Display(string title, UIElement body)
     {
         SectionTitle.Text = title;
         ContentHost.Content = body;
+        UpdateActiveNavigation(title);
     }
 
     private static StackPanel Stack(int margin = 0) => new()
@@ -254,10 +291,10 @@ public partial class MainWindow : Window
         if (AccessPolicy.CanEditSchool(_actor))
         {
             var form = Stack();
-            form.Children.Add(Label("إضافة مدرسة أو تعديل المدرسة المحددة", 17, true));
+            form.Children.Add(Label("إضافة مدرسة أو تصحيح بيانات مدرسة: اختر صفها من الجدول ثم عدل الحقول واحفظ.", 17, true));
             var code = Field(width: 150); var name = Field(width: 300); var zone = Field(width: 210);
             var ownership = new ComboBox { Width = 160, ItemsSource = new[] { "حكومية", "أهلية" }, SelectedIndex = 0 };
-            var stage = new ComboBox { Width = 160, ItemsSource = new[] { "أساسي", "ثانوي", "مجمع تربوي" }, SelectedIndex = 0 };
+            var stage = new ComboBox { Width = 160, ItemsSource = new[] { "روضة", "أساسي", "ثانوي", "مجمع تربوي" }, SelectedIndex = 0 };
             var gender = new ComboBox { Width = 160, ItemsSource = new[] { "ذكور", "إناث", "مختلطة" }, SelectedIndex = 2 };
             var active = new CheckBox { Content = "المدرسة نشطة", IsChecked = true, Margin = new Thickness(8), VerticalAlignment = VerticalAlignment.Center };
             var fields = new WrapPanel();
@@ -332,7 +369,7 @@ public partial class MainWindow : Window
             form.Children.Add(Label("تعديل مرحلة ونوع مدرستك فقط", 16, true));
             form.Children.Add(Label("لا يمكنك تغيير رمز المدرسة أو اسمها أو موقعها أو بيانات أي مدرسة أخرى.", 13));
             var stage = new ComboBox { Width = 180,
-                ItemsSource = new[] { "أساسي", "ثانوي", "مجمع تربوي" },
+                ItemsSource = new[] { "روضة", "أساسي", "ثانوي", "مجمع تربوي" },
                 SelectedItem = school.Stage, HorizontalAlignment = HorizontalAlignment.Left };
             var gender = new ComboBox { Width = 180,
                 ItemsSource = new[] { "ذكور", "إناث", "مختلطة" },
@@ -386,7 +423,7 @@ public partial class MainWindow : Window
         root.Children.Add(Box(staffGrid));
 
         var editor = Stack();
-        editor.Children.Add(Label("إضافة موظف أو تعديل السجل المحدد", 16, true));
+        editor.Children.Add(Label("إضافة موظف أو تعديل الاسم والبيانات: اختر السجل من الجدول، صحح الحقول ثم اضغط حفظ الموظف.", 16, true));
         var employeeCode = Field(width: 155);
         var fullName = Field(width: 270);
         var job = Field(width: 190);
@@ -522,6 +559,7 @@ public partial class MainWindow : Window
     private sealed class EnrollmentInput
     {
         public string Grade { get; set; } = "";
+        public string GradeName { get; set; } = "";
         public string Boys { get; set; } = "";
         public string Girls { get; set; } = "";
     }
@@ -535,9 +573,7 @@ public partial class MainWindow : Window
 
     private static int[] GradesFor(School school)
     {
-        if (school.Stage == "أساسي") return Enumerable.Range(1, 9).ToArray();
-        if (school.Stage == "ثانوي") return Enumerable.Range(10, 3).ToArray();
-        return Enumerable.Range(1, 12).ToArray();
+        return GradeNames.Allowed(school.Stage).ToArray();
     }
 
     private void ShowCensus()
@@ -554,7 +590,7 @@ public partial class MainWindow : Window
         var status = Label("", 14, true); form.Children.Add(status);
         var editable = AccessPolicy.Has(_actor, PermissionFlags.EditCensus);
         var lines = new ObservableCollection<EnrollmentInput>();
-        var table = GridFor(lines, ("الصف", "Grade", false), ("ذكور", "Boys", true), ("إناث", "Girls", true));
+        var table = GridFor(lines, ("المرحلة / الصف", "GradeName", false), ("ذكور", "Boys", true), ("إناث", "Girls", true));
         table.IsReadOnly = !editable;
         table.MaxHeight = 440;
         form.Children.Add(table);
@@ -612,6 +648,7 @@ public partial class MainWindow : Window
             {
                 var previous = latest?.Data.Rows.FirstOrDefault(x => x.Grade == grade.ToString(CultureInfo.InvariantCulture));
                 lines.Add(new EnrollmentInput { Grade = grade.ToString(CultureInfo.InvariantCulture),
+                    GradeName = GradeNames.ForStage(school.Stage, grade),
                     Boys = previous?.Boys.ToString(CultureInfo.InvariantCulture) ?? "",
                     Girls = previous?.Girls.ToString(CultureInfo.InvariantCulture) ?? "" });
             }
@@ -695,7 +732,7 @@ public partial class MainWindow : Window
             ("إناث", "Data.Girls", false), ("طلاب", "Data.Students", false),
             ("المعلمون", "Data.Teachers", false), ("الفصول", "Data.Classrooms", false));
         root.Children.Add(Box(grid));
-        root.Children.Add(Btn("تصدير Excel-compatible CSV", (_, _) => Safe(() =>
+        root.Children.Add(Btn("تصدير التقرير إلى CSV متوافق مع إكسل", (_, _) => Safe(() =>
         {
             var dialog = new SaveFileDialog { Filter = "CSV (*.csv)|*.csv", FileName = "SchoolObservatory-Approved.csv" };
             if (dialog.ShowDialog() != true) return;
