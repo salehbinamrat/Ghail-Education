@@ -71,6 +71,46 @@ public sealed class AcademicYearPhase2Tests
     }
 
     [Fact]
+    public void PhysicalRoomIsNotTheSameAsSectionAndCanBeReassigned()
+    {
+        var (store, owner, school, _) = Setup();
+        var a = store.AddSchoolGrade(owner, school.Id, 3, "أ");
+        var b = store.AddSchoolGrade(owner, school.Id, 3, "ب");
+        Assert.NotEqual(a.Id, b.Id);
+        var room = store.AddPhysicalClassroom(owner, school.Id, "R01", "المبنى أ", 35);
+        store.AssignSectionRoom(owner, school.Id, a.Id, room);
+        store.AssignSectionRoom(owner, school.Id, b.Id, room);
+        Assert.Equal(2, store.GetSchoolSectionsWithRooms(owner, school.Id).Count);
+    }
+
+    [Fact]
+    public void EmployeeAssignmentKeepsOneIdentityAndChronologicalWorkplaceHistory()
+    {
+        var (store, owner, school, _) = Setup();
+        store.AddSchool(owner, "S02", "مدرسة ثانية", "المدينة", "حكومية", "أساسي", "ذكور");
+        var other = store.GetSchools(owner).Single(x => x.Code == "S02");
+        store.SaveSchoolStaff(owner, new SchoolStaff("", school.Id, "EMP01", "معلم", "معلم", "مدرس", "", "", "ذكور", true));
+        var staff = store.GetSchoolStaff(owner, school.Id).Single();
+        store.AssignEmployee(owner, school.Id, staff.Id, other.Id, "secondment", new DateOnly(2026, 9, 1), null, "انتداب");
+        Assert.Single(store.GetSchoolStaff(owner, school.Id));
+        Assert.Single(store.GetEmployeeAssignments(owner, school.Id, staff.Id));
+        Assert.Equal(other.Id, store.GetEmployeeAssignments(owner, school.Id, staff.Id)[0].WorkplaceSchoolId);
+        Assert.Throws<InvalidOperationException>(() => store.AssignEmployee(owner, school.Id, staff.Id, other.Id, "secondment", new DateOnly(2026, 10, 1), null, ""));
+    }
+
+    [Fact]
+    public void SchoolProfileFacilitiesAreSchoolScoped()
+    {
+        var (store, owner, school, _) = Setup();
+        store.SaveSchoolInfrastructure(owner, school.Id,
+            new SchoolInfrastructure("غيل بن يمين", "العليب", "القرية", "شارع المدرسة",
+                null, null, "حكومي", "جيد", 12, "صباحي"));
+        store.SetSchoolFacility(owner, school.Id, "مختبر", 1, "قائم");
+        Assert.Equal(12, store.GetSchoolInfrastructure(owner, school.Id).ClassroomsCount);
+        Assert.Single(store.GetSchoolFacilities(owner, school.Id));
+    }
+
+    [Fact]
     public void ScopedSchoolAccountCannotControlAcademicYears()
     {
         var (store, owner, school, _) = Setup();
