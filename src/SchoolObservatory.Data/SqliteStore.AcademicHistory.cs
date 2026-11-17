@@ -304,8 +304,7 @@ public sealed partial class SqliteStore
         using var cmd = Cmd(con, null, """
             SELECT e.academic_year,e.school_id,e.grade,e.section,e.action,e.student_id
             FROM student_placement_events e
-            JOIN student_person_links l ON l.person_id=e.person_id
-            WHERE l.student_id=$id
+            WHERE e.person_id=(SELECT person_id FROM student_person_links WHERE student_id=$id)
               AND EXISTS(SELECT 1 FROM school_students s WHERE s.id=$id AND s.school_id=$school)
               AND ($district=1 OR e.school_id=$school)
             ORDER BY e.academic_year,e.created_utc,e.id
@@ -428,6 +427,19 @@ public sealed partial class SqliteStore
                 ("$id", studentId), ("$y", year), ("$at", Utc()));
             archive.ExecuteNonQuery();
         }
+        // Existing enrollments created after the v2 migration still need a historical
+        // source event before the next-year decision. Never rewrite the old enrollment.
+        using (var sourceHistory = Cmd(con, tx, """
+            INSERT INTO student_placement_events
+              (id,person_id,student_id,school_id,academic_year,grade,section,action,created_utc,actor_id)
+            SELECT $id,$p,$student,$school,$year,$grade,$section,'legacy',$at,$actor
+            WHERE NOT EXISTS(
+              SELECT 1 FROM student_placement_events
+              WHERE student_id=$student AND academic_year=$year)
+            """, ("$id", Id()), ("$p", personId), ("$student", studentId),
+            ("$school", schoolId), ("$year", latest.Year), ("$grade", latest.Grade),
+            ("$section", latest.Section), ("$at", Utc()), ("$actor", actor.Id)))
+            sourceHistory.ExecuteNonQuery();
         var eventId=Id();
         using (var history = Cmd(con, tx, """
             INSERT INTO student_placement_events
