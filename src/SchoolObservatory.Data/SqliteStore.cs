@@ -21,7 +21,7 @@ public sealed partial class SqliteStore
     {
         var con = DatabaseSecurity.OpenEncrypted(_databasePath, _databaseKey);
         using var cmd = con.CreateCommand();
-        cmd.CommandText = "PRAGMA busy_timeout=5000;";
+        cmd.CommandText = "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;";
         cmd.ExecuteNonQuery();
         return con;
     }
