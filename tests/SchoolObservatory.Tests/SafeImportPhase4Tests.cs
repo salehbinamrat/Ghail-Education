@@ -80,6 +80,22 @@ public sealed class SafeImportPhase4Tests
     }
 
     [Fact]
+    public void RollbackRefusesLaterImportsEvenWhenValueCyclesBackToSameText()
+    {
+        var (db,actor,school)=New();
+        ImportBatchSummary Write(string text)
+        {
+            var source=Table(["code","name"],["A01",text]);
+            return db.ApplyImport(actor,Plan(db,actor,ImportEntity.Schools,"cycle.csv",source));
+        }
+        var first=Write("الاسم المؤقت");
+        Write("تعديل ثان");
+        Write("الاسم المؤقت");
+        Assert.Throws<InvalidOperationException>(()=>db.ReverseImport(actor,first.Id));
+        Assert.Equal("الاسم المؤقت",Assert.Single(db.GetSchools(actor)).Name);
+    }
+
+    [Fact]
     public void PhysicalDeletionRequiresArchivedEmptySchoolAndExactConfirmationCode()
     {
         var (db,actor,school)=New();
