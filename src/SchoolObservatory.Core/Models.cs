@@ -29,6 +29,19 @@ public sealed record School(string Id, string Code, string Name, string Zone, st
 /// <summary>Teacher, administration employee, or school social worker.</summary>
 public sealed record SchoolStaff(string Id, string SchoolId, string EmployeeCode, string FullName,
     string Category, string JobTitle, string Specialization, string Qualification, string Gender, bool IsActive);
+
+/// <summary>Extended school directory information, stored separately from legacy school identity.</summary>
+public sealed record SchoolDirectoryDetails(string PrincipalName, string ContactPhone,
+    string Address, int? FoundedYear, string Notes);
+
+/// <summary>
+/// Staff membership is the school in SchoolStaff.SchoolId; the actual duty location may
+/// differ when a teacher or administrator is seconded, assigned or on loan.
+/// Unfilled legacy records remain explicitly "غير محدد", never inferred as permanent.
+/// </summary>
+public sealed record StaffPersonnelDetails(string EmploymentType, int? EmploymentYear,
+    int? ContractYear, int? QualificationYear, string AssignmentStatus,
+    string ActualWorkplace, int? AssignmentYear, string ContactPhone, string Notes);
 /// <summary>Grade and section within one school and one academic year.</summary>
 public sealed record SchoolGrade(string Id, string SchoolId, string AcademicYear, int Grade, string Section,
     string Stage = "")
