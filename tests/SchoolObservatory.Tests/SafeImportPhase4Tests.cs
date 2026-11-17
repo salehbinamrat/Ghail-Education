@@ -392,4 +392,24 @@ public sealed class SafeImportPhase4Tests
         Assert.Throws<InvalidOperationException>(() => db.ReverseImport(actor, next.Id));
         Assert.Equal("applied", db.GetImportBatches(actor).Single(x => x.Id == next.Id).Status);
     }
+    [Fact]
+    public void DuplicateExcelCellCoordinatesCannotSilentlyOverwriteIdentifiers()
+    {
+        var file = Path.Combine(Path.GetTempPath(), "phase4-duplicate-cell-" +
+            Guid.NewGuid().ToString("N") + ".xlsx");
+        try
+        {
+            using (var archive = ZipFile.Open(file, ZipArchiveMode.Create))
+            using (var output = new StreamWriter(
+                archive.CreateEntry("xl/worksheets/sheet1.xml").Open()))
+                output.Write("<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">" +
+                    "<sheetData><row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>code</t></is></c></row>" +
+                    "<row r=\"2\"><c r=\"A2\" t=\"inlineStr\"><is><t>A01</t></is></c>" +
+                    "<c r=\"A2\" t=\"inlineStr\"><is><t>B01</t></is></c></row></sheetData></worksheet>");
+            var error = Assert.Throws<ArgumentException>(() => ImportTableReader.Read(file));
+            Assert.Contains("A2", error.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { File.Delete(file); }
+    }
+
 }
