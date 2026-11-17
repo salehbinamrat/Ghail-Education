@@ -4,32 +4,24 @@ using SchoolObservatory.Core;
 
 namespace SchoolObservatory.Data;
 
-/// <summary>Local single-device SQLite persistence. Not encrypted: do not store sensitive real-world data yet.</summary>
+/// <summary>Encrypted offline SQLCipher 4 local storage. Never creates a replacement for an unreadable database.</summary>
 public sealed partial class SqliteStore
 {
-    private readonly string _connectionString;
+    private readonly string _databasePath;
+    private readonly string _databaseKey;
 
     public SqliteStore(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Database path is required", nameof(path));
-        var full = Path.GetFullPath(path);
-        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-        _connectionString = new SqliteConnectionStringBuilder
-        {
-            DataSource = full,
-            Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Private,
-            ForeignKeys = true,
-            Pooling = false
-        }.ToString();
+        _databasePath = Path.GetFullPath(path);
+        _databaseKey = DatabaseSecurity.Prepare(_databasePath);
     }
 
     private SqliteConnection Open()
     {
-        var con = new SqliteConnection(_connectionString);
-        con.Open();
+        var con = DatabaseSecurity.OpenEncrypted(_databasePath, _databaseKey);
         using var cmd = con.CreateCommand();
-        cmd.CommandText = "PRAGMA busy_timeout = 5000;";
+        cmd.CommandText = "PRAGMA busy_timeout=5000;";
         cmd.ExecuteNonQuery();
         return con;
     }
@@ -54,6 +46,17 @@ public sealed partial class SqliteStore
         using var con = Open();
         using var pragma = Cmd(con, null, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;");
         pragma.ExecuteNonQuery();
+        // Version 0 is legacy. Back up every existing schema before additive migrations.
+        using (var version = Cmd(con, null, "PRAGMA user_version;"))
+        using (var tableCount = Cmd(con, null, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"))
+        {
+            if (Convert.ToInt32(version.ExecuteScalar(), CultureInfo.InvariantCulture) < 1 &&
+                Convert.ToInt32(tableCount.ExecuteScalar(), CultureInfo.InvariantCulture) > 0)
+                DatabaseSecurity.BackupSchemaBeforeChanges(_databasePath, _databaseKey);
+        }
+        using (var begin = Cmd(con, null, "BEGIN IMMEDIATE;")) begin.ExecuteNonQuery();
+        try
+        {
         using var cmd = Cmd(con, null, """
             CREATE TABLE IF NOT EXISTS settings (
               key TEXT PRIMARY KEY, value TEXT NOT NULL
@@ -119,6 +122,15 @@ public sealed partial class SqliteStore
         MigrateUserPermissions(con);
         MigrateSchoolRecords(con);
         MigrateStudentRecords(con);
+        using (var mark = Cmd(con, null, "PRAGMA user_version=1;")) mark.ExecuteNonQuery();
+        using (var commit = Cmd(con, null, "COMMIT;")) commit.ExecuteNonQuery();
+        }
+        catch
+        {
+            try { using var rollback = Cmd(con, null, "ROLLBACK;"); rollback.ExecuteNonQuery(); }
+            catch (SqliteException) { /* Original failure takes priority. */ }
+            throw;
+        }
     }
 
     public bool HasUsers()
