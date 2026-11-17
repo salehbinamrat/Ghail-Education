@@ -83,8 +83,8 @@ public sealed class ArabicRosterSearchAndImportTests
         var xaml = System.Xml.Linq.XDocument.Load(Path.Combine(directory!.FullName,
             "src", "SchoolObservatory.Desktop", "App.xaml"));
         System.Xml.Linq.XNamespace wpf = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
-        var rowStyle = Assert.Single(xaml.Descendants(wpf + "Style")
-            .Where(style => style.Attribute("TargetType")?.Value == "DataGridRow"));
+        var rowStyle = Assert.Single(xaml.Descendants(wpf + "Style"),
+            style => style.Attribute("TargetType")?.Value == "DataGridRow");
         Assert.Contains(rowStyle.Descendants(wpf + "Trigger"),
             trigger => trigger.Attribute("Property")?.Value == "IsMouseOver");
         Assert.Contains(rowStyle.Descendants(wpf + "Trigger"),
