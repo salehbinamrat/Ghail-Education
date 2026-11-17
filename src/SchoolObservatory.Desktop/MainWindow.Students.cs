@@ -329,6 +329,12 @@ public partial class MainWindow
         root.Children.Add(Label($"ملف الطالب: {student.FullName}", 21, true));
         root.Children.Add(Label($"الرقم المدرسي: {student.StudentCode}  |  الصف {student.Grade} / {student.Section}" +
             $"  |  العام الدراسي: {student.AcademicYear}", 14));
+        if (!student.IsActive)
+        {
+            var warning = Label("ملف غير نشط — السجلات الدراسية السابقة متاحة للقراءة، والإدخال الجديد معطل.", 13, true);
+            warning.Foreground = new SolidColorBrush(Color.FromRgb(163, 67, 26));
+            root.Children.Add(Box(warning, new Thickness(12)));
+        }
         root.Children.Add(Box(Label($"ولي الأمر: {student.GuardianName}  |  الهاتف: {student.GuardianPhone}" +
             (school.Gender == "مختلطة" ? $"  |  الجنس: {student.Gender}" : ""), 14)));
 
@@ -400,7 +406,8 @@ public partial class MainWindow
         var score = Field(width: 90);
         var maximum = Field("100", 90);
         var resultNote = Field(width: 230);
-        var canEvaluate = AccessPolicy.CanManageStudentEvaluation(_actor, school.Id);
+        var canEvaluate = student.IsActive &&
+            AccessPolicy.CanManageStudentEvaluation(_actor, school.Id);
         var resultEditor = LineOfFields(("الفصل الدراسي", term), ("المادة", subject),
             ("الدرجة", score), ("الدرجة الكاملة", maximum), ("ملاحظات", resultNote));
         resultEditor.IsEnabled = canEvaluate;
