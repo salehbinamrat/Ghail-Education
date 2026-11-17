@@ -674,8 +674,8 @@ public partial class MainWindow : Window
                 specialization.Text, qualification.Text,
                 gender.SelectedItem?.ToString() ?? "غير محدد", active.IsChecked == true);
             _store.SaveSchoolStaff(_actor, staff);
-            Info("تم حفظ سجل الموظف في المدرسة المحددة.");
-            Refresh();
+            Info("تم حفظ سجل الموظف وتحديث كشف المدرسة والدليل الموحد.");
+            ShowStaffCore(school.Id);
         })));
         actions.Children.Add(Btn("حذف الموظف من الكشوف (أرشفة)", (_, _) => Safe(() =>
         {
@@ -684,13 +684,13 @@ public partial class MainWindow : Window
                 "تأكيد أرشفة موظف", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
                 return;
             _store.SaveSchoolStaff(_actor, selected with { IsActive = false });
-            Refresh();
+            ShowStaffCore(selected.SchoolId);
         }), tone: "danger"));
         actions.Children.Add(Btn("استعادة موظف مؤرشف", (_, _) => Safe(() =>
         {
             if (selected is null) throw new InvalidOperationException("حدد الموظف المؤرشف أولا.");
             _store.SaveSchoolStaff(_actor, selected with { IsActive = true });
-            Refresh();
+            ShowStaffCore(selected.SchoolId);
         }), tone: "secondary"));
         editor.Children.Add(actions);
 
@@ -721,8 +721,9 @@ public partial class MainWindow : Window
                     MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
                 var imported = await Task.Run(() => _store.ImportStaffRecords(
                     _actor, rows, Path.GetFileName(file.FileName)));
-                Info("تم تسجيل " + imported + " صفا في المدارس المطابقة دون استيراد جزئي.");
-                Refresh();
+                Info("تم تسجيل " + imported + " صفا وتحديث دليل الكادر الموحد دون استيراد جزئي.");
+                ShowStaffCore(schoolBox.SelectedItem is School currentSchool
+                    ? currentSchool.Id : null);
             }
             catch (Exception ex)
             {
