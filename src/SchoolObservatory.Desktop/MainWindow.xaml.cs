@@ -40,6 +40,8 @@ public partial class MainWindow : Window
         if (AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("التقارير والتصدير", ShowReports);
         if (AccessPolicy.CanCreateUsers(actor)) AddNav("إدارة المستخدمين", ShowUsers);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewAudit)) AddNav("سجل العمليات", ShowAudit);
+        if (actor.IsOwner) AddNav("النسخ الاحتياطي والاستعادة", ShowBackups);
+        StartAutomaticBackup();
         ShowDashboard();
     }
 
