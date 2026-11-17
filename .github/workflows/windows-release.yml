@@ -10,11 +10,11 @@ on:
 permissions:
   contents: read
 
-# Pull-request and branch-push events may run for the same commit; keep only
-# the newest attempt of each workflow on a branch. Core and Release have
-# different workflow names and therefore continue running independently.
+# Queue each Core and Release independently for the same source commit.
+# A stalled obsolete commit may not block tests for the newest SHA.
+# Pull-request and branch pushes for the SAME SHA share a group to avoid duplication.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
