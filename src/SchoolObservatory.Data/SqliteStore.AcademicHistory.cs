@@ -512,4 +512,70 @@ public sealed partial class SqliteStore
         Audit(con, tx, actor.Id, "student."+action, personId, $"from={schoolId};to={targetSchoolId};year={year}");
         tx.Commit();
     }
+
+    public void CompleteStudentEnrollment(UserAccount actor, string schoolId, string studentId, string action)
+    {
+        RequireFreshActor(actor);
+        if (!AccessPolicy.CanManageStudents(actor, schoolId)) throw new UnauthorizedAccessException();
+        if (action is not ("graduate" or "withdraw"))
+            throw new ArgumentException("Completion must be graduate or withdraw.", nameof(action));
+        var year=AcademicYear;
+        using var con=Open();
+        using var tx=con.BeginTransaction();
+        using (var open=Cmd(con,tx,
+            "SELECT status FROM academic_years WHERE year=$year AND is_active=1",("$year",year)))
+            if (open.ExecuteScalar()?.ToString()!="open")
+                throw new InvalidOperationException("Cannot change a closed or inactive academic year.");
+        string personId;
+        int grade;
+        string section;
+        using (var student=Cmd(con,tx, """
+            SELECT COALESCE(l.person_id,s.id),g.grade,g.section
+            FROM school_students s
+            JOIN student_enrollments e ON e.student_id=s.id AND e.school_id=s.school_id
+            JOIN school_grades g ON g.id=e.grade_id
+            LEFT JOIN student_person_links l ON l.student_id=s.id
+            WHERE s.id=$id AND s.school_id=$school AND e.academic_year=$year
+              AND e.status='مسجل' AND s.is_active=1
+            """,("$id",studentId),("$school",schoolId),("$year",year)))
+        using (var reader=student.ExecuteReader())
+        {
+            if (!reader.Read()) throw new InvalidOperationException("Student is not actively enrolled.");
+            personId=reader.GetString(0);grade=reader.GetInt32(1);section=reader.GetString(2);
+        }
+        using (var ensure=Cmd(con,tx, """
+            INSERT OR IGNORE INTO student_people(id,created_utc) VALUES($p,$at);
+            INSERT OR IGNORE INTO student_person_links(student_id,person_id) VALUES($student,$p);
+            """,("$p",personId),("$student",studentId),("$at",Utc())))
+            ensure.ExecuteNonQuery();
+        using (var duplicate=Cmd(con,tx,
+            "SELECT COUNT(*) FROM student_year_decisions WHERE person_id=$p AND academic_year=$year",
+            ("$p",personId),("$year",year)))
+            if (Convert.ToInt32(duplicate.ExecuteScalar(),CultureInfo.InvariantCulture)>0)
+                throw new InvalidOperationException("Student has already completed a year decision.");
+        var eventId=Id();
+        using (var ev=Cmd(con,tx, """
+            INSERT INTO student_placement_events
+              (id,person_id,student_id,school_id,academic_year,grade,section,action,created_utc,actor_id)
+            VALUES($id,$p,$student,$school,$year,$grade,$section,$action,$at,$actor)
+            """,("$id",eventId),("$p",personId),("$student",studentId),("$school",schoolId),
+            ("$year",year),("$grade",grade),("$section",section),("$action",action),
+            ("$at",Utc()),("$actor",actor.Id))) ev.ExecuteNonQuery();
+        using (var decision=Cmd(con,tx, """
+            INSERT INTO student_year_decisions(person_id,academic_year,action,event_id)
+            VALUES($p,$year,$action,$event)
+            """,("$p",personId),("$year",year),("$action",action),("$event",eventId)))
+            decision.ExecuteNonQuery();
+        using (var status=Cmd(con,tx, """
+            UPDATE student_enrollments SET status=$status,updated_utc=$at
+            WHERE student_id=$id AND school_id=$school AND academic_year=$year AND status='مسجل'
+            """,("$status",action=="graduate"?"متخرج":"منسحب"),("$at",Utc()),
+            ("$id",studentId),("$school",schoolId),("$year",year)))
+            if(status.ExecuteNonQuery()!=1) throw new InvalidOperationException("Enrollment already completed.");
+        using (var archive=Cmd(con,tx,
+            "UPDATE school_students SET is_active=0,updated_utc=$at WHERE id=$id AND school_id=$school",
+            ("$at",Utc()),("$id",studentId),("$school",schoolId))) archive.ExecuteNonQuery();
+        Audit(con,tx,actor.Id,"student."+action,personId,$"school={schoolId};year={year}");
+        tx.Commit();
+    }
 }
