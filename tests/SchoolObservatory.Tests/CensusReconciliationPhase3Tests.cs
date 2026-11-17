@@ -149,6 +149,42 @@ public sealed class CensusReconciliationPhase3Tests
     }
 
     [Fact]
+    public void DeliberatelyCorruptedEmployeeAssignmentIsFlaggedNotAutoCorrected()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "phase3-corruption-" +
+            Guid.NewGuid().ToString("N") + ".db");
+        var db = new SqliteStore(path);
+        db.Initialize();
+        db.InitializeAdministrator("غيل بن يمين", "2026/2027", "founder", "Strong-Founder-Password-123!");
+        var owner = db.Authenticate("founder", "Strong-Founder-Password-123!")!;
+        db.AddSchool(owner, "C01", "مدرسة الملاك", "القرية", "حكومية", "أساسي", "ذكور");
+        db.AddSchool(owner, "C02", "مدرسة العمل", "القرية", "حكومية", "أساسي", "ذكور");
+        var schools = db.GetSchools(owner);
+        var payroll = schools.Single(x => x.Code == "C01");
+        var workplace = schools.Single(x => x.Code == "C02");
+        db.SaveSchoolStaff(owner, new SchoolStaff("", payroll.Id, "EMP-17", "موظف",
+            "معلم", "معلم", "رياضيات", "بكالوريوس", "ذكور", true));
+        var person = Assert.Single(db.GetSchoolStaff(owner, payroll.Id));
+        using (var con = DatabaseSecurity.OpenForRegressionTest(path))
+        {
+            using var tamper = con.CreateCommand();
+            tamper.CommandText = """
+                UPDATE employee_assignments SET payroll_school_id=$wrong
+                WHERE employee_id=$id
+                """;
+            tamper.Parameters.AddWithValue("$wrong", workplace.Id);
+            tamper.Parameters.AddWithValue("$id", person.Id);
+            Assert.Equal(1, tamper.ExecuteNonQuery());
+        }
+        var problems = db.GetCensusReconciliation(owner, "2026/2027");
+        Assert.Contains(problems, x => x.SchoolId == payroll.Id &&
+            x.MetricKey == "integrity.staff_assignment" &&
+            x.OperationalValue > 0 && x.IsDiscrepant);
+        Assert.Equal(payroll.Id, db.GetEmployeeCareer(owner, person.Id).OriginalPayrollSchoolId);
+        Assert.Single(db.GetSchoolStaff(owner, payroll.Id));
+    }
+
+    [Fact]
     public void NoApprovedSubmissionIsUnknownNotAnInventedZeroDiscrepancy()
     {
         var (db, owner, a, _) = Setup();
