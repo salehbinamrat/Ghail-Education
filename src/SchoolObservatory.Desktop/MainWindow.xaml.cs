@@ -804,6 +804,34 @@ public partial class MainWindow : Window
         var status = Label("", 15, true);
         status.Foreground = new SolidColorBrush(Color.FromRgb(9, 97, 130));
         form.Children.Add(status);
+        // Ordinary field errors are shown in the current form, without a blocking
+        // Windows MessageBox. Programming errors still go through normal diagnostics.
+        void ValidateCensus(Action action)
+        {
+            try
+            {
+                action();
+                status.Foreground = new SolidColorBrush(Color.FromRgb(9, 109, 83));
+            }
+            catch (ArgumentException ex)
+            {
+                status.Foreground = new SolidColorBrush(Color.FromRgb(170, 45, 62));
+                status.Text = "راجع المدخلات: " + ex.Message;
+                ContentScroll.ScrollToTop();
+            }
+            catch (InvalidOperationException ex)
+            {
+                status.Foreground = new SolidColorBrush(Color.FromRgb(170, 45, 62));
+                status.Text = "تعذر تنفيذ الإجراء: " + ex.Message;
+                ContentScroll.ScrollToTop();
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                status.Foreground = new SolidColorBrush(Color.FromRgb(170, 45, 62));
+                status.Text = "الصلاحية غير متاحة: " + ex.Message;
+                ContentScroll.ScrollToTop();
+            }
+        }
         var editable = AccessPolicy.Has(_actor, PermissionFlags.EditCensus);
         var canReadRosters = AccessPolicy.Has(_actor, PermissionFlags.ViewStudents);
         var lines = new ObservableCollection<EnrollmentInput>();
@@ -839,7 +867,7 @@ public partial class MainWindow : Window
         roomsHint.Foreground = new SolidColorBrush(Color.FromRgb(26, 111, 127));
         form.Children.Add(roomsHint);
         var assist = new WrapPanel { Margin = new Thickness(0, 5, 0, 10) };
-        assist.Children.Add(Btn("تعبئة عدد الشعب من كشوف المدرسة", (_, _) => Safe(() =>
+        assist.Children.Add(Btn("تعبئة عدد الشعب من كشوف المدرسة", (_, _) => ValidateCensus(() =>
         {
             if (combo.SelectedItem is not School selected) return;
             var sections = _store.GetSchoolGrades(_actor, selected.Id);
@@ -852,7 +880,7 @@ public partial class MainWindow : Window
             rooms.Text = count.ToString(CultureInfo.InvariantCulture);
             roomsHint.Text = $"تم اقتراح {count} فصلا من كشوف الصفوف والشعب. راجع العدد قبل حفظ المسودة؛ لم تتغير الاستمارة الرسمية بعد.";
         }), editable && canReadRosters, "secondary"));
-        assist.Children.Add(Btn("تعبئة أعداد الطلاب من الكشوف الحالية", (_, _) => Safe(() =>
+        assist.Children.Add(Btn("تعبئة أعداد الطلاب من الكشوف الحالية", (_, _) => ValidateCensus(() =>
         {
             if (combo.SelectedItem is not School selected) return;
             var suggested = CensusNumberInput.SuggestGradeTotals(
@@ -888,7 +916,7 @@ public partial class MainWindow : Window
         form.Children.Add(notes);
 
         var actions = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
-        actions.Children.Add(Btn("حفظ المسودة", (_, _) => Safe(() =>
+        actions.Children.Add(Btn("حفظ المسودة", (_, _) => ValidateCensus(() =>
         {
             if (combo.SelectedItem is not School selected) return;
             table.CommitEdit(DataGridEditingUnit.Cell, true);
@@ -913,7 +941,7 @@ public partial class MainWindow : Window
                 ? "تم حفظ البيانات بنجاح."
                 : $"تم حفظ المسودة بنجاح — المراجعة {latest.Revision}. يمكن الآن رفعها للمراجعة.";
         }), editable, "success"));
-        actions.Children.Add(Btn("رفع المسودة للمراجعة", (_, _) => Safe(() =>
+        actions.Children.Add(Btn("رفع المسودة للمراجعة", (_, _) => ValidateCensus(() =>
         {
             if (combo.SelectedItem is not School selected) return;
             var latest = _store.GetLatestSubmission(_actor, selected.Id)
