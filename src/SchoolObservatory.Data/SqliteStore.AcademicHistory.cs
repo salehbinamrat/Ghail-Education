@@ -760,7 +760,7 @@ public sealed partial class SqliteStore
         using var get = Cmd(con, tx, """
             SELECT id,school_id FROM student_history WHERE student_id=$id AND academic_year=$year
             AND end_utc IS NULL AND status='مسجل'
-            """, ("$id", studentId));
+            """, ("$id", studentId), ("$year", year));
         string placement, school;
         using (var r = get.ExecuteReader())
         {
