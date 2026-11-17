@@ -96,6 +96,20 @@
         </Setter.Value>
       </Setter>
     </Style>
+    <Style TargetType="TabItem">
+      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="#145071"/>
+      <Setter Property="Background" Value="#E8F5FA"/>
+      <Setter Property="Padding" Value="14,10"/>
+      <Setter Property="Margin" Value="2,0"/>
+      <Style.Triggers>
+        <Trigger Property="IsSelected" Value="True">
+          <Setter Property="Background" Value="#008DB3"/>
+          <Setter Property="Foreground" Value="White"/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
     <Style TargetType="DataGridColumnHeader">
       <Setter Property="Background" Value="#DFF4F9"/>
       <Setter Property="Foreground" Value="#074568"/>

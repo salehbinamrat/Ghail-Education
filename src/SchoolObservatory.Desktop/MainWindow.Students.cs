@@ -56,7 +56,7 @@ public partial class MainWindow
             throw new UnauthorizedAccessException("لا تملك صلاحية الاطلاع على ملفات الطلاب.");
         var root = Stack();
         root.Children.Add(Label("كشوف الصفوف وملفات الطلاب", 20, true));
-        root.Children.Add(Label("اختر المدرسة والشعبة. اضغط على اسم الطالب في الكشف لفتح ملفه: البيانات، النتائج، التقييمات والحضور.", 14));
+        root.Children.Add(Label("اختر المدرسة والصف والشعبة ثم ابحث باسم الطالب أو رمزه. اضغط على صف الطالب لفتح ملفه: البيانات، النتائج، التقييمات والحضور.", 14));
         var schools = _store.GetSchools(_actor).Where(s => s.IsActive).ToArray();
         if (schools.Length == 0)
         {
@@ -77,6 +77,9 @@ public partial class MainWindow
         root.Children.Add(Box(LineOfFields(("المدرسة", schoolPicker), ("الصف والشعبة", gradePicker))));
         var selectedCount = Label("عدد الطلاب في الكشف: 0", 14, true);
         root.Children.Add(selectedCount);
+        var search = Field(width: 285);
+        search.ToolTip = "بحث فوري باسم الطالب أو رقمه في الكشف الحالي";
+        root.Children.Add(Box(LineOfFields(("بحث في كشف الصف", search)), new Thickness(12)));
 
         var roster = GridFor(Array.Empty<StudentRosterItem>(),
             ("رمز الطالب", "StudentCode", false),
@@ -146,19 +149,37 @@ public partial class MainWindow
                 selectedSchool.Gender == "مختلطة" ? -1 : 0;
         }
 
-        void RefreshRoster()
+        IReadOnlyList<SchoolStudent> rosterCache = Array.Empty<SchoolStudent>();
+        string? cachedSchoolId = null;
+        string? cachedGradeId = null;
+        void RefreshRoster(bool reload = true)
         {
             var selectedSchool = schoolPicker.SelectedItem as School;
             var selectedGrade = gradePicker.SelectedItem as SchoolGrade;
             if (selectedSchool is null)
             {
                 roster.ItemsSource = Array.Empty<StudentRosterItem>();
+                rosterCache = Array.Empty<SchoolStudent>();
+                cachedSchoolId = null;
+                cachedGradeId = null;
                 selectedCount.Text = "عدد الطلاب في الكشف: 0";
                 return;
             }
-            var students = _store.GetStudents(_actor, selectedSchool.Id, selectedGrade?.Id);
-            roster.ItemsSource = students.Select(s => new StudentRosterItem(s)).ToArray();
-            selectedCount.Text = $"عدد الطلاب في الكشف: {students.Count}";
+            if (reload || cachedSchoolId != selectedSchool.Id || cachedGradeId != selectedGrade?.Id)
+            {
+                rosterCache = _store.GetStudents(_actor, selectedSchool.Id, selectedGrade?.Id);
+                cachedSchoolId = selectedSchool.Id;
+                cachedGradeId = selectedGrade?.Id;
+            }
+            var students = rosterCache;
+            var filter = search.Text.Trim();
+            var visible = students.Where(s => filter.Length == 0 ||
+                s.FullName.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                s.StudentCode.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToArray();
+            roster.ItemsSource = visible.Select(s => new StudentRosterItem(s)).ToArray();
+            selectedCount.Text = filter.Length == 0
+                ? $"عدد الطلاب في الكشف: {students.Count}"
+                : $"نتائج البحث: {visible.Length} من أصل {students.Count} طالب";
             editor.IsEnabled = AccessPolicy.CanManageStudents(_actor, selectedSchool.Id) &&
                 selectedGrade is not null;
             exportRoster.IsEnabled = editor.IsEnabled;
@@ -204,10 +225,11 @@ public partial class MainWindow
             ResetEditor();
             RefreshRoster();
         }
-        schoolPicker.SelectionChanged += (_, _) => Safe(() => RefillGrades());
+        search.TextChanged += (_, _) => Safe(() => RefreshRoster(false));
+        schoolPicker.SelectionChanged += (_, _) => Safe(() => { search.Clear(); RefillGrades(); });
         gradePicker.SelectionChanged += (_, _) => Safe(() =>
         {
-            ResetEditor(); RefreshRoster();
+            search.Clear(); ResetEditor(); RefreshRoster();
         });
         roster.SelectionChanged += (_, _) =>
         {
@@ -292,7 +314,13 @@ public partial class MainWindow
         root.Children.Add(Box(Label($"ولي الأمر: {student.GuardianName}  |  الهاتف: {student.GuardianPhone}" +
             (school.Gender == "مختلطة" ? $"  |  الجنس: {student.Gender}" : ""), 14)));
 
-        var tabs = new TabControl { Margin = new Thickness(2, 10, 2, 14), MinHeight = 370 };
+        var tabs = new TabControl
+        {
+            Margin = new Thickness(2, 10, 2, 14), MinHeight = 370,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(161, 212, 228)),
+            BorderThickness = new Thickness(1),
+            Background = Brushes.White
+        };
 
         var personal = Stack();
         personal.Children.Add(Label("المعلومات الأساسية للطالب", 17, true));
