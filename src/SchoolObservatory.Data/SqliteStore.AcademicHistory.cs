@@ -291,7 +291,7 @@ public sealed partial class SqliteStore
             "SELECT status FROM academic_years WHERE year=$y", ("$y", year)))
             if (check.ExecuteScalar()?.ToString() != "open")
                 throw new InvalidOperationException("Cannot activate an unknown or closed year.");
-        using (var clear = Cmd(con, tx, "UPDATE academic_years SET is_active=0; UPDATE census_rounds SET is_active=0;"))
+        using (var clear = Cmd(con, tx, "UPDATE academic_years SET is_active=0 WHERE is_active=1; UPDATE census_rounds SET is_active=0 WHERE is_active=1;"))
             clear.ExecuteNonQuery();
         using (var activate = Cmd(con, tx,
             "UPDATE academic_years SET is_active=1 WHERE year=$y; UPDATE census_rounds SET is_active=1 WHERE academic_year=$y;",
@@ -329,13 +329,13 @@ public sealed partial class SqliteStore
               SELECT 1 FROM student_placement_events e
               WHERE e.student_id=en.student_id AND e.academic_year=en.academic_year)
             """, ("$y", year))) history.ExecuteNonQuery();
+        using (var round = Cmd(con, tx, "UPDATE census_rounds SET is_active=0 WHERE academic_year=$y AND is_active=1",
+            ("$y", year))) round.ExecuteNonQuery();
         using (var cmd = Cmd(con, tx, """
             UPDATE academic_years SET status='closed',is_active=0,closed_utc=$at
             WHERE year=$y AND status='open'
             """, ("$y", year), ("$at", Utc())))
             if (cmd.ExecuteNonQuery() != 1) throw new InvalidOperationException("Year already closed or unknown.");
-        using (var round = Cmd(con, tx, "UPDATE census_rounds SET is_active=0 WHERE academic_year=$y",
-            ("$y", year))) round.ExecuteNonQuery();
         Audit(con, tx, actor.Id, "academic_year.close", year, "");
         tx.Commit();
     }
