@@ -288,8 +288,14 @@ public sealed class DatabaseSecurityPhase1Tests
                 """;
             cmd.ExecuteNonQuery();
         }
+        // Microsoft.Data.Sqlite retains idle handles when its default connection
+        // pooling is enabled. Flush the test creator's native connection before
+        // Windows raw byte comparisons; a file-sharing violation is not a data-loss
+        // signal and must not mask the actual migration regression.
+        SqliteConnection.ClearAllPools();
         var original = SHA256.HashData(File.ReadAllBytes(path));
         Assert.ThrowsAny<Exception>(() => new SqliteStore(path));
+        SqliteConnection.ClearAllPools();
         Assert.Equal(original, SHA256.HashData(File.ReadAllBytes(path)));
         Assert.False(File.Exists(DatabaseSecurity.KeyFile(path)));
     }
