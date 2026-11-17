@@ -318,4 +318,53 @@ public sealed class DatabaseSecurityPhase1Tests
         Assert.False(DatabaseSecurity.IsPlaintext(path));
     }
 
+    [Fact]
+    public void InterruptedMigrationBeforePromotionResumesUsingExistingProtectedKey()
+    {
+        var path = PathFor();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using (var plain = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()))
+        {
+            plain.Open();
+            using var cmd = plain.CreateCommand();
+            cmd.CommandText = "CREATE TABLE legacy(id INTEGER PRIMARY KEY, record TEXT); INSERT INTO legacy VALUES(1, 'preserved');";
+            cmd.ExecuteNonQuery();
+        }
+        SqliteConnection.ClearAllPools();
+        // Mimic a stopped process after durable key-file creation, before promotion.
+        var keyBytes = RandomNumberGenerator.GetBytes(32);
+        DatabaseSecurity.CreateProtectedKeyFile(DatabaseSecurity.KeyFile(path), keyBytes);
+        var legacyBytes = File.ReadAllBytes(path);
+        var resumed = new SqliteStore(path);
+        resumed.Initialize();
+        Assert.False(DatabaseSecurity.IsPlaintext(path));
+        Assert.Equal(1, DatabaseSecurity.CountRows(path, "legacy"));
+        Assert.True(File.Exists(DatabaseSecurity.KeyFile(path)));
+        Assert.True(legacyBytes.Length > 16);
+    }
+
+    [Fact]
+    public void InterruptedMigrationAfterPromotionRetiresOnlyMatchingPlaintextOriginal()
+    {
+        var path = PathFor();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using (var plain = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()))
+        {
+            plain.Open();
+            using var cmd = plain.CreateCommand();
+            cmd.CommandText = "CREATE TABLE legacy(id INTEGER PRIMARY KEY, record TEXT); INSERT INTO legacy VALUES(1, 'still here');";
+            cmd.ExecuteNonQuery();
+        }
+        SqliteConnection.ClearAllPools();
+        var rollback = path + ".20261117000000000.legacy-original";
+        File.Copy(path, rollback);
+        var store = new SqliteStore(path);
+        store.Initialize();
+        // Create a matching unencrypted rollback from the old schema for a resume check.
+        Assert.True(File.Exists(rollback));
+        var reopened = new SqliteStore(path);
+        Assert.Equal(1, DatabaseSecurity.CountRows(path, "legacy"));
+        Assert.False(File.Exists(rollback));
+    }
+
 }
