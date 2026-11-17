@@ -264,6 +264,39 @@ public sealed class AcademicHistoryPhase2Tests
         Assert.Equal(a.Id, career.OriginalPayrollSchoolId);
     }
 
+
+    [Fact]
+    public void TransferToSchoolWithSameLocalCodeAssignsUniqueDestinationCodeWithoutCloningStudent()
+    {
+        var (db, owner, a, b, _) = Prepare();
+        var id = AddStudent(db, owner, a);
+        db.AddSchoolGrade(owner, b.Id, 3, "أ");
+        db.SaveStudent(owner, new SchoolStudent("", b.Id, "S001", "طالب آخر",
+            3, "أ", "", "", "", "", true, "2026/2027"));
+        var other = Assert.Single(db.GetStudents(owner, b.Id));
+        db.OpenAcademicYear(owner, "2027/2028");
+        db.ActivateAcademicYear(owner, "2027/2028");
+        db.AddSchoolGrade(owner, b.Id, 3, "أ");
+        db.AddSchoolGrade(owner, b.Id, 4, "أ");
+        db.PromoteStudent(owner, other.Id, b.Id, 3, "أ", repeat: true);
+        db.TransferStudentSchool(owner, id, b.Id, 4, "أ");
+        var students = db.GetStudents(owner, b.Id);
+        Assert.Equal(2, students.Count);
+        Assert.Equal(2, students.Select(x => x.StudentCode).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.Equal(id, students.Single(x => x.Id == id).Id);
+        Assert.Equal("S001", db.GetHistoricalStudents(owner, a.Id, "2026/2027").Single().StudentCode);
+    }
+
+    [Fact]
+    public void AcademicStageSnapshotIsNotOverwrittenByLaterSchoolReclassification()
+    {
+        var (db, owner, a, _, _) = Prepare();
+        db.AddSchoolGrade(owner, a.Id, 3, "أ");
+        Assert.Equal("أساسي", Assert.Single(db.GetSchoolGrades(owner, a.Id)).Stage);
+        db.UpdateSchool(owner, a with { Stage = "مجمع تربوي" });
+        Assert.Equal("أساسي", Assert.Single(db.GetSchoolGrades(owner, a.Id)).Stage);
+    }
+
     [Fact]
     public void MigrationKeepsExistingStudentStaffAndAuditWithoutChangingIds()
     {
