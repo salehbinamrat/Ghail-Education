@@ -135,10 +135,13 @@ public sealed partial class SqliteStore
             ("$same",refreshed.Unchanged),("$warnings",warnings),("$now",now)))
             batch.ExecuteNonQuery();
 
-        foreach(var plan in refreshed.Rows)
+        for(var planIndex=0;planIndex<refreshed.Rows.Count;planIndex++)
         {
+            var plan=refreshed.Rows[planIndex];
             if(plan.Status==ImportRowStatus.Unchanged) continue;
-            var input=preview.Table.Rows[plan.RowNumber-2];
+            // The displayed row number may be a sparse Excel worksheet coordinate,
+            // not the zero-based index inside the normalized import data.
+            var input=preview.Table.Rows[planIndex];
             if(preview.Entity==ImportEntity.Sections)
             {
                 var schoolCode=LookupInput(input,preview.ColumnMap,"school_code");

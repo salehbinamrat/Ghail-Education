@@ -18,7 +18,7 @@ public sealed partial class SqliteStore
         for(var i=0;i<table.Rows.Count;i++)
         {
             var values=table.Rows[i];
-            var rowNumber=i+2;
+            var rowNumber=table.SourceRowNumbers is null ? i+2 : table.SourceRowNumbers[i];
             var schoolCode=LookupInput(values,mapping,"school_code");
             var gradeText=LookupInput(values,mapping,"grade");
             var section=LookupInput(values,mapping,"section");

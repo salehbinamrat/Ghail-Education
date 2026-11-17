@@ -107,6 +107,11 @@ public sealed partial class SqliteStore
             throw new ArgumentException("حجم الجدول غير مسموح، الحد الأقصى 5000 صف و30 عمودا.");
         if (table.Rows.Any(r => r.Count>30 || r.Any(v => v.Length>2000)))
             throw new ArgumentException("تجاوزت إحدى الخلايا أو الأعمدة الحد الآمن.");
+        if (table.SourceRowNumbers is { } numbers &&
+            (numbers.Count != table.Rows.Count ||
+             numbers.Any(n => n < 2 || n > 1_048_576) ||
+             numbers.Zip(numbers.Skip(1), (a,b) => a >= b).Any(outOfOrder => outOfOrder)))
+            throw new ArgumentException("أرقام صفوف المصدر غير صالحة أو غير مرتبة.");
         if (sourceName.Length > 250 || string.IsNullOrWhiteSpace(sourceName))
             throw new ArgumentException("اسم الملف غير صالح.");
         var extension = Path.GetExtension(sourceName).ToLowerInvariant();
@@ -158,7 +163,7 @@ public sealed partial class SqliteStore
         for(var index=0;index<table.Rows.Count;index++)
         {
             var row=table.Rows[index];
-            var line=index+2;
+            var line=table.SourceRowNumbers is null ? index+2 : table.SourceRowNumbers[index];
             string Value(string key) => mapping.TryGetValue(key,out var col) && col<row.Count
                 ? row[col].Trim() : "";
             string Column(string key) => mapping.TryGetValue(key,out var col)

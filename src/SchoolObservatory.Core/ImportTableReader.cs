@@ -31,10 +31,12 @@ public static class ImportTableReader
                 magic[2] != 0x03 || magic[3] != 0x04)
                 throw new ArgumentException("امتداد الملف لا يطابق صيغة OOXML المضغوطة.");
         }
-        var rows = SchoolStaffImportParser.ReadStructuredTable(path, _ => true);
+        var parsed = SchoolStaffImportParser.ReadStructuredTableWithPositions(path, _ => true);
+        var rows = parsed.Rows;
         if (rows.Count < 2) throw new ArgumentException("الملف لا يحتوي عناوين وصفوف بيانات.");
         if (rows[0].Count is 0 or > 30)
             throw new ArgumentException("عدد الأعمدة غير صالح.");
-        return new ImportTable(extension.TrimStart('.'), rows[0], rows.Skip(1).ToArray());
+        return new ImportTable(extension.TrimStart('.'), rows[0], rows.Skip(1).ToArray(),
+            parsed.RowNumbers.Skip(1).ToArray());
     }
 }

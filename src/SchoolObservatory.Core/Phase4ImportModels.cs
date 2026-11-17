@@ -6,7 +6,8 @@ public enum ImportEntity { Schools, Students, Staff, Sections }
 public enum ImportRowStatus { New, Update, Unchanged, Duplicate, Conflict, Invalid }
 
 public sealed record ImportTable(
-    string Format, IReadOnlyList<string> Headers, IReadOnlyList<IReadOnlyList<string>> Rows);
+    string Format, IReadOnlyList<string> Headers, IReadOnlyList<IReadOnlyList<string>> Rows,
+    IReadOnlyList<int>? SourceRowNumbers = null);
 
 public sealed record ImportFieldChange(string Field, string Before, string After);
 
