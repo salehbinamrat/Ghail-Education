@@ -121,7 +121,7 @@ public sealed class OfficialReportingPhase6Tests
             new ReportFilter(StaffCategory: "معلم", AssignmentStatus: "منتدب"));
         Assert.Equal(db.GetDistrictStaffDirectory(owner).Count, report.RecordCount);
         Assert.Equal(1, report.Totals["staff"]);
-        Assert.Equal(1, report.Rows.Count);
+        Assert.Single(report.Rows);
         var assignments = Run(db, owner, ReportKind.Secondments);
         Assert.Single(assignments.Rows);
         Assert.Equal(1, assignments.Totals["staff"]);
