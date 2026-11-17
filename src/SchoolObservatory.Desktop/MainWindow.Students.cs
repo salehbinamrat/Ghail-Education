@@ -57,7 +57,7 @@ public partial class MainWindow
             throw new UnauthorizedAccessException("لا تملك صلاحية الاطلاع على ملفات الطلاب.");
         var root = Stack();
         root.Children.Add(Label("كشوف الصفوف وملفات الطلاب", 20, true));
-        root.Children.Add(Label("اختر المدرسة والصف والشعبة ثم ابحث باسم الطالب أو رمزه. اضغط على صف الطالب لفتح ملفه: البيانات، النتائج، التقييمات والحضور.", 14));
+        root.Children.Add(Label("اختر المدرسة والصف والشعبة ثم ابحث باسم الطالب أو رمزه أو اسم ولي الأمر أو هاتفه. لفتح ملف الطالب، حدده واضغط زر فتح الملف أو انقر مرتين على صفه.", 14));
         var schools = _store.GetSchools(_actor).Where(s => s.IsActive).ToArray();
         if (schools.Length == 0)
         {
@@ -80,12 +80,12 @@ public partial class MainWindow
         selectedCount.Foreground = new SolidColorBrush(Color.FromRgb(5, 91, 131));
         root.Children.Add(Box(selectedCount, new Thickness(12)));
         var search = Field(width: 285);
-        search.ToolTip = "بحث فوري باسم الطالب أو رقمه في الكشف الحالي";
+        search.ToolTip = "بحث محلي برمز الطالب أو اسمه أو ولي الأمر أو هاتفه، مع دعم الأرقام العربية";
         root.Children.Add(Box(LineOfFields(("بحث في كشف الصف", search)), new Thickness(12)));
 
         var roster = GridFor(Array.Empty<StudentRosterItem>(),
             ("رمز الطالب", "StudentCode", false),
-            ("اسم الطالب — اضغط لفتح ملفه", "FullName", false),
+            ("اسم الطالب — انقر مرتين لفتح ملفه", "FullName", false),
             ("الصف", "Grade", false), ("الشعبة", "Section", false),
             ("ولي الأمر", "GuardianName", false), ("الحالة", "StatusArabic", false));
         roster.MaxHeight = 480;
