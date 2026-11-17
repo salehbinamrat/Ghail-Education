@@ -333,8 +333,8 @@ public sealed partial class SqliteStore
         // One indexed query returns the grade and the school's display stage together.
         using var cmd = Cmd(con, null, """
             SELECT g.id,g.school_id,g.academic_year,g.grade,g.section,
-              CASE WHEN s.is_kindergarten=1 THEN 'روضة'
-                   WHEN s.stage='أساسي وثانوي' THEN 'مجمع تربوي' ELSE s.stage END
+              COALESCE(NULLIF(g.academic_stage,''),CASE WHEN s.is_kindergarten=1 THEN 'روضة'
+                   WHEN s.stage='أساسي وثانوي' THEN 'مجمع تربوي' ELSE s.stage END)
             FROM school_grades g JOIN schools s ON s.id=g.school_id
             WHERE g.school_id=$s AND g.academic_year=$y AND s.is_active=1
             ORDER BY g.grade,g.section
@@ -360,10 +360,11 @@ public sealed partial class SqliteStore
         var year = AcademicYear;
         using var con = Open();
         using var cmd = Cmd(con, null, """
-            SELECT st.id,h.school_id,st.student_code,st.full_name,g.grade,g.section,
+            SELECT st.id,h.school_id,COALESCE(local.student_code,st.student_code),st.full_name,g.grade,g.section,
                 st.gender,st.guardian_name,st.guardian_phone,st.notes,st.is_active,h.academic_year
             FROM school_students st
             JOIN student_history h ON h.student_id=st.id
+            LEFT JOIN student_school_codes local ON local.student_id=st.id AND local.school_id=h.school_id
             JOIN school_grades g ON g.id=h.grade_id AND g.school_id=h.school_id
                 AND g.academic_year=h.academic_year
             WHERE h.school_id=$s AND h.academic_year=$y
@@ -385,10 +386,11 @@ public sealed partial class SqliteStore
         var year = AcademicYear;
         using var con = Open();
         using var cmd = Cmd(con, null, """
-            SELECT st.id,h.school_id,st.student_code,st.full_name,g.grade,g.section,
+            SELECT st.id,h.school_id,COALESCE(local.student_code,st.student_code),st.full_name,g.grade,g.section,
                 st.gender,st.guardian_name,st.guardian_phone,st.notes,st.is_active,h.academic_year
             FROM school_students st
             JOIN student_history h ON h.student_id=st.id
+            LEFT JOIN student_school_codes local ON local.student_id=st.id AND local.school_id=h.school_id
             JOIN school_grades g ON g.id=h.grade_id AND g.school_id=h.school_id
                 AND g.academic_year=h.academic_year
             WHERE st.id=$id AND h.school_id=$s AND h.academic_year=$year
@@ -431,8 +433,8 @@ public sealed partial class SqliteStore
                 throw new UnauthorizedAccessException("لا يوجد قيد نشط للطالب في هذه المدرسة.");
         }
         using (var duplicate = Cmd(con, tx, """
-            SELECT EXISTS(SELECT 1 FROM school_students
-              WHERE school_id=$s AND student_code=$code AND id<>$id)
+            SELECT EXISTS(SELECT 1 FROM student_school_codes
+              WHERE school_id=$s AND student_code=$code AND student_id<>$id)
             """, ("$s", student.SchoolId), ("$code", code), ("$id", id)))
         {
             if (Convert.ToInt32(duplicate.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
@@ -455,7 +457,8 @@ public sealed partial class SqliteStore
         {
             using var update = Cmd(con, tx, """
                 UPDATE school_students
-                SET student_code=$code,full_name=$name,gender=$gender,guardian_name=$guardian,
+                SET student_code=CASE WHEN school_id=$s THEN $code ELSE student_code END,
+                    full_name=$name,gender=$gender,guardian_name=$guardian,
                     guardian_phone=$phone,notes=$notes,is_active=$active,updated_utc=$at
                 WHERE id=$id AND (school_id=$s OR EXISTS(
                     SELECT 1 FROM student_history WHERE student_id=$id
@@ -467,7 +470,16 @@ public sealed partial class SqliteStore
                 ("$notes", student.Notes.Trim()), ("$active", student.IsActive ? 1 : 0),
                 ("$at", Utc()));
             if (update.ExecuteNonQuery() != 1)
-                throw new UnauthorizedAccessException("لا يمكن نقل طالب إلى مدرسة أخرى بهذه العملية.");
+                throw new UnauthorizedAccessException("لا يمكن تعديل طالب خارج قيد مدرسته الحالي.");
+            if (fromAnotherSchool)
+            {
+                using var localCode = Cmd(con, tx, """
+                    UPDATE student_school_codes SET student_code=$code
+                    WHERE student_id=$id AND school_id=$school
+                    """, ("$code", code), ("$id", id), ("$school", student.SchoolId));
+                if (localCode.ExecuteNonQuery() != 1)
+                    throw new InvalidOperationException("لا يوجد رقم محلي لهذا الطالب في المدرسة المنقول إليها.");
+            }
         }
         if (fromAnotherSchool)
         {
