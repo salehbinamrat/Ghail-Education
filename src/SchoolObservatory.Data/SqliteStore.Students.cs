@@ -100,7 +100,7 @@ public sealed partial class SqliteStore
 
     private static StudentSchoolInfo StudentSchool(SqliteConnection con, SqliteTransaction? tx, string schoolId)
     {
-        using var cmd = Cmd(con, tx, "SELECT code,stage,gender,is_active FROM schools WHERE id=$s",
+        using var cmd = Cmd(con, tx, "SELECT code,CASE WHEN is_kindergarten=1 THEN 'روضة' WHEN stage='أساسي وثانوي' THEN 'مجمع تربوي' ELSE stage END,gender,is_active FROM schools WHERE id=$s",
             ("$s", schoolId));
         using var reader = cmd.ExecuteReader();
         if (!reader.Read() || reader.GetInt32(3) != 1)
@@ -162,9 +162,7 @@ public sealed partial class SqliteStore
 
     private static void GradeAllowed(StudentSchoolInfo school, int grade)
     {
-        if (grade is < 1 or > 12 ||
-            (school.Stage == "أساسي" && grade > 9) ||
-            (school.Stage == "ثانوي" && grade < 10))
+        if (!GradeNames.IsAllowed(school.Stage, grade))
             throw new ArgumentException("الصف الدراسي غير متوافق مع مرحلة المدرسة.");
     }
 
@@ -229,7 +227,8 @@ public sealed partial class SqliteStore
         var year = AcademicYear;
         using var con = Open();
         using var tx = con.BeginTransaction();
-        GradeAllowed(StudentSchool(con, tx, schoolId), grade);
+        var school = StudentSchool(con, tx, schoolId);
+        GradeAllowed(school, grade);
         var id = Id();
         using (var cmd = Cmd(con, tx, """
             INSERT INTO school_grades(id,school_id,academic_year,grade,section,created_utc)
@@ -248,7 +247,47 @@ public sealed partial class SqliteStore
         id = read.ExecuteScalar()?.ToString()
             ?? throw new InvalidOperationException("تعذر إنشاء صف المدرسة.");
         tx.Commit();
-        return new SchoolGrade(id, schoolId, year, grade, section);
+        return new SchoolGrade(id, schoolId, year, grade, section, school.Stage);
+    }
+
+    /// <summary>
+    /// Corrects a class or section in the current academic year in place. The stable
+    /// class ID and its student enrollments remain intact; old academic years are not altered.
+    /// </summary>
+    public void UpdateSchoolGrade(UserAccount actor, string schoolId, string gradeId,
+        int grade, string section)
+    {
+        RequireFreshActor(actor);
+        if (!AccessPolicy.CanManageStudents(actor, schoolId))
+            throw new UnauthorizedAccessException("لا تملك صلاحية تعديل صفوف هذه المدرسة.");
+        section = SectionName(section);
+        var year = AcademicYear;
+        using var con = Open();
+        using var tx = con.BeginTransaction();
+        GradeAllowed(StudentSchool(con, tx, schoolId), grade);
+        using var exists = Cmd(con, tx, """
+            SELECT EXISTS(SELECT 1 FROM school_grades
+            WHERE id=$id AND school_id=$s AND academic_year=$y)
+            """, ("$id", gradeId), ("$s", schoolId), ("$y", year));
+        if (Convert.ToInt32(exists.ExecuteScalar(), CultureInfo.InvariantCulture) != 1)
+            throw new UnauthorizedAccessException("الصف غير موجود في المدرسة أو العام الدراسي المحدد.");
+        using var duplicates = Cmd(con, tx, """
+            SELECT EXISTS(SELECT 1 FROM school_grades
+            WHERE school_id=$s AND academic_year=$y AND grade=$grade AND section=$section AND id<>$id)
+            """, ("$id", gradeId), ("$s", schoolId), ("$y", year),
+            ("$grade", grade), ("$section", section));
+        if (Convert.ToInt32(duplicates.ExecuteScalar(), CultureInfo.InvariantCulture) == 1)
+            throw new InvalidOperationException("يوجد كشف آخر بنفس الصف والشعبة؛ اختر شعبة مختلفة.");
+        using var update = Cmd(con, tx, """
+            UPDATE school_grades SET grade=$grade,section=$section
+            WHERE id=$id AND school_id=$s AND academic_year=$y
+            """, ("$grade", grade), ("$section", section), ("$id", gradeId),
+            ("$s", schoolId), ("$y", year));
+        if (update.ExecuteNonQuery() != 1)
+            throw new InvalidOperationException("تعذر تصحيح الصف والشعبة.");
+        Audit(con, tx, actor.Id, "student.grade_update", gradeId,
+            $"school={schoolId};year={year};grade={grade};section={section}");
+        tx.Commit();
     }
 
     public IReadOnlyList<SchoolGrade> GetSchoolGrades(UserAccount actor, string schoolId)
@@ -258,6 +297,7 @@ public sealed partial class SqliteStore
             throw new UnauthorizedAccessException("لا تملك صلاحية عرض صفوف المدرسة.");
         var year = AcademicYear;
         using var con = Open();
+        var school = StudentSchool(con, null, schoolId);
         using var cmd = Cmd(con, null, """
             SELECT id,school_id,academic_year,grade,section
             FROM school_grades WHERE school_id=$s AND academic_year=$y
@@ -266,7 +306,7 @@ public sealed partial class SqliteStore
         using var r = cmd.ExecuteReader();
         var result = new List<SchoolGrade>();
         while (r.Read()) result.Add(new SchoolGrade(Text(r, 0), Text(r, 1), Text(r, 2),
-            r.GetInt32(3), Text(r, 4)));
+            r.GetInt32(3), Text(r, 4), school.Stage));
         return result;
     }
 
