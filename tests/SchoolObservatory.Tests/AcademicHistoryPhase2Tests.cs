@@ -488,7 +488,7 @@ public sealed class AcademicHistoryPhase2Tests
         {
             using var command = check.CreateCommand();
             command.CommandText = "PRAGMA user_version;";
-            Assert.Equal(3L, Convert.ToInt64(command.ExecuteScalar()));
+            Assert.Equal(4L, Convert.ToInt64(command.ExecuteScalar()));
         }
         Assert.NotEmpty(Directory.GetFiles(
             System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path)!, "recovery"),
@@ -600,7 +600,7 @@ public sealed class AcademicHistoryPhase2Tests
         {
             using var version = check.CreateCommand();
             version.CommandText = "PRAGMA user_version;";
-            Assert.Equal(3L, Convert.ToInt64(version.ExecuteScalar()));
+            Assert.Equal(4L, Convert.ToInt64(version.ExecuteScalar()));
             using var guards = check.CreateCommand();
             guards.CommandText = """
                 SELECT COUNT(*) FROM sqlite_master
