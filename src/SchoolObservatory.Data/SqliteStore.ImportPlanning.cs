@@ -188,6 +188,14 @@ public sealed partial class SqliteStore
                 }
                 if(keyCode.Length==0)
                     throw new ArgumentException($"العمود {Column(entity==ImportEntity.Schools?"code":entity==ImportEntity.Staff?"employee_code":"student_code")}: المعرف مطلوب.");
+                if(entity==ImportEntity.Students)
+                {
+                    try { _=StudentCode(keyCode); }
+                    catch(ArgumentException ex)
+                    {
+                        throw new ArgumentException($"العمود {Column("student_code")}: {ex.Message}");
+                    }
+                }
                 if(schoolCode.Length==0 || !context.Schools.TryGetValue(schoolCode,out var school))
                 {
                     if (entity==ImportEntity.Schools)
@@ -285,7 +293,7 @@ public sealed partial class SqliteStore
                     if(!int.TryParse(grade,NumberStyles.None,CultureInfo.InvariantCulture,out var number) ||
                         !GradeNames.Allowed(school!.Fields["stage"]).Contains(number))
                         throw new ArgumentException($"العمود {Column("grade")}: الصف لا يتبع مرحلة المدرسة.");
-                    var section=Required("section");
+                    var section=SectionName(Required("section"));
                     if(!context.Grades.ContainsKey(GradeKey(school!.Id,grade,section)))
                         throw new ArgumentException($"العمود {Column("section")}: الشعبة {section} في الصف {grade} غير مسجلة؛ أضفها أولا.");
                     ValidateStudent(Required("full_name"),state.GetValueOrDefault("guardian_name",""),
