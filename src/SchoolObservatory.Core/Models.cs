@@ -55,7 +55,20 @@ public sealed record ParentCouncilMember(string Id, string SchoolId, string Coun
 /// <summary>Current operational counts, separate from the approved official census snapshot.</summary>
 public sealed record LiveDirectoryTotals(int Schools, int ActiveStudents, int ActiveTeachers,
     int ActiveAdministrators, int ActiveSpecialists, int Sections, int CouncilMembers,
-    bool StudentsVisible, bool StaffVisible);
+    bool StudentsVisible, bool StaffVisible, int DirectStaff = 0,
+    int SecondedStaff = 0, int UnclassifiedStaff = 0, int DuplicateEmployeeCodes = 0);
+
+/// <summary>A single staff identity joined with its payroll school and actual work assignment.</summary>
+public sealed record DistrictStaffDirectoryRow(string StaffId, string SchoolId,
+    string SchoolName, string EmployeeCode, string FullName, string Category,
+    string JobTitle, string Qualification, string EmploymentType,
+    string AssignmentStatus, string EffectiveWorkplace, bool IsActive)
+{
+    public string ActiveLabel => IsActive ? "مسجل" : "مؤرشف";
+}
+
+/// <summary>Legacy data quality warning: same payroll identifier is recorded in several schools.</summary>
+public sealed record StaffCodeConflict(string EmployeeCode, int Schools);
 
 public sealed record SchoolStudent(string Id, string SchoolId, string StudentCode, string FullName,
     int Grade, string Section, string Gender, string GuardianName, string GuardianPhone,
