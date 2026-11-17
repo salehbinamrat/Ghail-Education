@@ -327,6 +327,46 @@ public sealed partial class SqliteStore
             WHEN EXISTS(SELECT 1 FROM census_rounds r JOIN academic_years y ON y.year=r.academic_year
                 WHERE r.id=OLD.round_id AND y.is_closed=1)
             BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            -- A submission's child rows and approval history also form official records.
+            CREATE TRIGGER IF NOT EXISTS p2_enrollment_rows_insert BEFORE INSERT ON enrollment_rows
+            WHEN EXISTS(SELECT 1 FROM submissions s JOIN census_rounds r ON r.id=s.round_id
+                JOIN academic_years y ON y.year=r.academic_year
+                WHERE s.id=NEW.submission_id AND y.is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_enrollment_rows_update BEFORE UPDATE ON enrollment_rows
+            WHEN EXISTS(SELECT 1 FROM submissions s JOIN census_rounds r ON r.id=s.round_id
+                JOIN academic_years y ON y.year=r.academic_year
+                WHERE s.id=OLD.submission_id AND y.is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_enrollment_rows_delete BEFORE DELETE ON enrollment_rows
+            WHEN EXISTS(SELECT 1 FROM submissions s JOIN census_rounds r ON r.id=s.round_id
+                JOIN academic_years y ON y.year=r.academic_year
+                WHERE s.id=OLD.submission_id AND y.is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_decisions_insert BEFORE INSERT ON decisions
+            WHEN EXISTS(SELECT 1 FROM submissions s JOIN census_rounds r ON r.id=s.round_id
+                JOIN academic_years y ON y.year=r.academic_year
+                WHERE s.id=NEW.submission_id AND y.is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_decisions_update BEFORE UPDATE ON decisions
+            WHEN EXISTS(SELECT 1 FROM submissions s JOIN census_rounds r ON r.id=s.round_id
+                JOIN academic_years y ON y.year=r.academic_year
+                WHERE s.id=OLD.submission_id AND y.is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_decisions_delete BEFORE DELETE ON decisions
+            WHEN EXISTS(SELECT 1 FROM submissions s JOIN census_rounds r ON r.id=s.round_id
+                JOIN academic_years y ON y.year=r.academic_year
+                WHERE s.id=OLD.submission_id AND y.is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_sections_room_insert BEFORE INSERT ON section_room_assignments
+            WHEN EXISTS(SELECT 1 FROM academic_years WHERE year=NEW.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_sections_room_update BEFORE UPDATE ON section_room_assignments
+            WHEN EXISTS(SELECT 1 FROM academic_years WHERE year=OLD.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_sections_room_delete BEFORE DELETE ON section_room_assignments
+            WHEN EXISTS(SELECT 1 FROM academic_years WHERE year=OLD.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
             CREATE TRIGGER IF NOT EXISTS p2_student_created AFTER INSERT ON school_students
             BEGIN
                 SELECT 1;
