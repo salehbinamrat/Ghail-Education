@@ -260,6 +260,19 @@ public sealed class SafeImportPhase4Tests
     }
 
     [Fact]
+    public void StalePreviewAlsoRejectsChangesToOtherFieldsNotIncludedInImport()
+    {
+        var (db,actor,school)=New();
+        var source=Table(["code","name"],["A01","اسم مستورد"]);
+        var preview=Plan(db,actor,ImportEntity.Schools,"stale-elsewhere.csv",source);
+        db.UpdateSchool(actor,school with { Zone="تعديل موقع لاحق" });
+        Assert.Throws<InvalidOperationException>(()=>db.ApplyImport(actor,preview));
+        var current=Assert.Single(db.GetSchools(actor));
+        Assert.Equal("تعديل موقع لاحق",current.Zone);
+        Assert.Equal(school.Name,current.Name);
+    }
+
+    [Fact]
     public void RollbackIsAuditedAndRefusesSubsequentEdits()
     {
         var (db, actor, school) = New();
