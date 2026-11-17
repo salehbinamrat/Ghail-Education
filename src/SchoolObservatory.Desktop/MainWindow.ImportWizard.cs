@@ -123,9 +123,9 @@ public partial class MainWindow
                     "لن يسمح النظام بإضافة سجلات خارج صلاحيات الحساب.", 13));
                 columnArea.Children.Add(LineOfFields(("مدرسة افتراضية",fallbackSchool)));
             }
-            columnArea.Children.Add(Btn("الخطوة 3 — تدقيق جميع الصفوف ومعاينة الفروق", async (_, _) =>
+            columnArea.Children.Add(Btn("الخطوة 3 — تدقيق جميع الصفوف ومعاينة الفروق", async (sender, _) =>
             {
-                var button = (Button)_;
+                var button = (Button)sender;
                 button.IsEnabled=false;
                 try
                 {
@@ -190,7 +190,7 @@ public partial class MainWindow
                     "لا يمكن اعتماد الدفعة: صحح جميع الصفوف غير الصالحة والمكررة والمتعارضة في الملف، ثم أعد المعاينة.",15,true));
                 return;
             }
-            reviewArea.Children.Add(Btn("الخطوة 4 — تأكيد الاستيراد بعد مراجعة الفروق",async (_,_) =>
+            reviewArea.Children.Add(Btn("الخطوة 4 — تأكيد الاستيراد بعد مراجعة الفروق",async (sender,_) =>
             {
                 if(preview!=plan) return;
                 var confirm=MessageBox.Show(
@@ -200,7 +200,7 @@ public partial class MainWindow
                     "الخلايا الفارغة لا تمحو بيانات موجودة. ستُحفظ الدفعة في سجل التدقيق. هل توافق؟",
                     "تأكيد نهائي قبل الكتابة",MessageBoxButton.YesNo,MessageBoxImage.Warning);
                 if(confirm!=MessageBoxResult.Yes)return;
-                var button=(Button)_;
+                var button=(Button)sender;
                 button.IsEnabled=false;
                 try
                 {
@@ -238,7 +238,7 @@ public partial class MainWindow
             selectionArea.Children.Add(Label(
                 "اختر CSV بترميز UTF-8 أو Excel .xlsx أو Word .docx بجداول منظمة. " +
                 "الملفات القديمة ذات الماكرو، والصيغ الحسابية، والملفات التالفة مرفوضة.",14));
-            selectionArea.Children.Add(Btn("1 — تحديد الملف وقراءة العناوين",async (_,_) =>
+            selectionArea.Children.Add(Btn("1 — تحديد الملف وقراءة العناوين",async (sender,_) =>
             {
                 var dialog=new OpenFileDialog
                 {
