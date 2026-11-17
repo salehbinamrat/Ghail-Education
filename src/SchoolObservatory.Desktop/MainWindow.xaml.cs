@@ -36,7 +36,10 @@ public partial class MainWindow : Window
         if (AccessPolicy.Has(actor, PermissionFlags.ViewStaff))
             AddNav("كادر المدارس والسجلات", ShowStaff);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewStudents))
+        {
             AddNav("الطلاب والصفوف", ShowStudents);
+            AddNav("أرشيف الطلاب والترفيع", ShowHistoricalRosters);
+        }
         if (AccessPolicy.Has(actor, PermissionFlags.EditCensus) || AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("إحصاء الطلاب والمعلمين", ShowCensus);
         if (AccessPolicy.Has(actor, PermissionFlags.ApproveSchool) || AccessPolicy.Has(actor, PermissionFlags.ApproveDistrict) || AccessPolicy.Has(actor, PermissionFlags.ReviewCensus)) AddNav("مراجعة واعتماد الإحصاء", ShowReviews);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("التقارير والتصدير", ShowReports);
