@@ -52,6 +52,42 @@ public sealed partial class SqliteStore
                 event_utc TEXT NOT NULL,
                 UNIQUE(next_placement_id)
             );
+            CREATE TABLE IF NOT EXISTS transferred_student_results(
+                id TEXT PRIMARY KEY,
+                student_id TEXT NOT NULL REFERENCES school_students(id) ON DELETE RESTRICT,
+                school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE RESTRICT,
+                academic_year TEXT NOT NULL REFERENCES academic_years(year) ON DELETE RESTRICT,
+                term TEXT NOT NULL,
+                subject TEXT NOT NULL COLLATE NOCASE,
+                score INTEGER NOT NULL CHECK(score>=0),
+                maximum INTEGER NOT NULL CHECK(maximum>0 AND score<=maximum),
+                notes TEXT NOT NULL DEFAULT '',
+                updated_utc TEXT NOT NULL,
+                UNIQUE(student_id,school_id,academic_year,term,subject)
+            );
+            CREATE INDEX IF NOT EXISTS ix_transferred_results_student
+                ON transferred_student_results(student_id,academic_year,school_id);
+            CREATE TABLE IF NOT EXISTS transferred_student_attendance(
+                id TEXT PRIMARY KEY,
+                student_id TEXT NOT NULL REFERENCES school_students(id) ON DELETE RESTRICT,
+                school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE RESTRICT,
+                academic_year TEXT NOT NULL REFERENCES academic_years(year) ON DELETE RESTRICT,
+                attendance_date TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('حاضر','غائب','متأخر','بعذر')),
+                notes TEXT NOT NULL DEFAULT '',
+                updated_utc TEXT NOT NULL,
+                UNIQUE(student_id,school_id,attendance_date)
+            );
+            CREATE TABLE IF NOT EXISTS transferred_student_assessments(
+                id TEXT PRIMARY KEY,
+                student_id TEXT NOT NULL REFERENCES school_students(id) ON DELETE RESTRICT,
+                school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE RESTRICT,
+                academic_year TEXT NOT NULL REFERENCES academic_years(year) ON DELETE RESTRICT,
+                category TEXT NOT NULL,
+                rating TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                recorded_utc TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS school_physical_rooms(
                 id TEXT PRIMARY KEY,
                 school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE RESTRICT,
@@ -269,6 +305,39 @@ public sealed partial class SqliteStore
                     NEW.grade_id,CASE WHEN NEW.status='مسجل' THEN 'مسجل' ELSE 'منسحب' END,
                     NEW.updated_utc,CASE WHEN NEW.status='مسجل' THEN NULL ELSE NEW.updated_utc END);
             END;
+            CREATE TRIGGER IF NOT EXISTS p2_enrollment_changed AFTER UPDATE OF grade_id ON student_enrollments
+            BEGIN
+                UPDATE student_history SET grade_id=NEW.grade_id
+                WHERE student_id=NEW.student_id AND school_id=NEW.school_id
+                  AND academic_year=NEW.academic_year AND end_utc IS NULL AND status='مسجل';
+            END;
+            CREATE TRIGGER IF NOT EXISTS p2_transfer_results_insert BEFORE INSERT ON transferred_student_results
+            WHEN EXISTS(SELECT 1 FROM academic_years WHERE year=NEW.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_transfer_results_update BEFORE UPDATE ON transferred_student_results
+            WHEN EXISTS(SELECT 1 FROM academic_years WHERE year=OLD.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_transfer_results_delete BEFORE DELETE ON transferred_student_results
+            WHEN EXISTS(SELECT 1 FROM academic_years WHERE year=OLD.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_transfer_attendance_insert BEFORE INSERT ON transferred_student_attendance
+            WHEN EXISTS(SELECT 1 FROM academic_years WHERE year=NEW.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_transfer_attendance_update BEFORE UPDATE ON transferred_student_attendance
+            WHEN EXISTS(SELECT 1 FROM academic_years WHERE year=OLD.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_transfer_attendance_delete BEFORE DELETE ON transferred_student_attendance
+            WHEN EXISTS(SELECT 1 FROM academic_years WHERE year=OLD.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_transfer_assessments_insert BEFORE INSERT ON transferred_student_assessments
+            WHEN EXISTS(SELECT 1 FROM academic_years WHERE year=NEW.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_transfer_assessments_update BEFORE UPDATE ON transferred_student_assessments
+            WHEN EXISTS(SELECT 1 FROM academic_years WHERE year=OLD.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_transfer_assessments_delete BEFORE DELETE ON transferred_student_assessments
+            WHEN EXISTS(SELECT 1 FROM academic_years WHERE year=OLD.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Academic year closed'); END;
             CREATE TRIGGER IF NOT EXISTS p2_staff_created AFTER INSERT ON school_staff
             BEGIN
                 INSERT OR IGNORE INTO employee_identities(id,employee_code,full_name,
