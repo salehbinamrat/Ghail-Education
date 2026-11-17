@@ -35,9 +35,18 @@ public sealed partial class SqliteStore
 
     private static void AssertNotLivePath(string path, string live)
     {
-        if (string.Equals(Path.GetFullPath(path), Path.GetFullPath(live), StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(Path.GetFullPath(path), DatabaseSecurity.KeyFile(live), StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("A backup cannot overwrite the active database or key.");
+        var candidate = Path.GetFullPath(path);
+        var db = Path.GetFullPath(live);
+        // Even when SQLite hasn't created its WAL/SHM sidecars yet, these names
+        // belong to the live database and may be created during the backup.
+        // Overwriting any protected companion path could corrupt data or keys.
+        var reserved = new[]
+        {
+            db, db + "-wal", db + "-shm", db + "-journal",
+            DatabaseSecurity.KeyFile(db), db + ".automatic.dpapi", db + ".automatic-last-run"
+        };
+        if (reserved.Any(item => string.Equals(candidate, item, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("A backup cannot target the active database or any of its protected sidecar files.");
     }
 
     private static void Execute(SqliteConnection con, string sql)
