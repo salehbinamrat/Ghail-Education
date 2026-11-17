@@ -100,6 +100,8 @@ public partial class MainWindow : Window
         var key = title switch
         {
             "ملف الطالب" => "الطلاب والصفوف",
+            "ملف المدرسة" => "دليل المدارس",
+            "ملف الموظف" => "كادر المدارس والسجلات",
             "المراجعة والاعتماد" => "مراجعة واعتماد الإحصاء",
             "إدارة المسؤولين والمستخدمين" => "إدارة المستخدمين",
             _ => title
@@ -278,6 +280,15 @@ public partial class MainWindow : Window
         Display("لوحة التحكم", root);
     }
 
+    // Ignore headers, scrollbars, empty backgrounds and other non-row double-clicks.
+    private static bool IsDoubleClickOnGridRow(object original, DataGrid grid)
+    {
+        var current = original as DependencyObject;
+        while (current is not null && current != grid && current is not DataGridRow)
+            current = VisualTreeHelper.GetParent(current);
+        return current is DataGridRow;
+    }
+
     private void ShowSchools()
     {
         var root = Stack();
@@ -288,6 +299,19 @@ public partial class MainWindow : Window
             ("الملكية", "Ownership", false), ("النوع", "Gender", false),
             ("المرحلة", "Stage", false), ("نشطة", "IsActive", false));
         root.Children.Add(Box(grid));
+        root.Children.Add(Label("انقر مرتين على اسم المدرسة لفتح ملفها الكامل، أو حددها ثم اضغط زر فتح الملف.", 13));
+        grid.MouseDoubleClick += (_, e) =>
+        {
+            if (IsDoubleClickOnGridRow(e.OriginalSource, grid) &&
+                grid.SelectedItem is School selectedSchool)
+                Safe(() => ShowSchoolProfile(selectedSchool.Id));
+        };
+        root.Children.Add(Btn("فتح ملف المدرسة المحددة", (_, _) => Safe(() =>
+        {
+            if (grid.SelectedItem is not School selectedSchool)
+                throw new InvalidOperationException("اختر مدرسة من الدليل أولا.");
+            ShowSchoolProfile(selectedSchool.Id);
+        }), tone: "secondary"));
         if (AccessPolicy.CanEditSchool(_actor))
         {
             var form = Stack();
@@ -387,7 +411,9 @@ public partial class MainWindow : Window
         Display("دليل المدارس", root);
     }
 
-    private void ShowStaff()
+    private void ShowStaff() => ShowStaffCore();
+
+    private void ShowStaffCore(string? preferredSchoolId = null)
     {
         if (!AccessPolicy.Has(_actor, PermissionFlags.ViewStaff))
             throw new UnauthorizedAccessException("لا تملك صلاحية عرض كادر المدارس.");
@@ -421,6 +447,21 @@ public partial class MainWindow : Window
             ("نشط", "IsActive", false));
         staffGrid.MaxHeight = 370;
         root.Children.Add(Box(staffGrid));
+        root.Children.Add(Label("انقر مرتين على اسم المعلم أو الإداري لفتح ملفه الوظيفي وتفاصيل الانتداب والتعاقد.", 13));
+        staffGrid.MouseDoubleClick += (_, e) =>
+        {
+            if (IsDoubleClickOnGridRow(e.OriginalSource, staffGrid) &&
+                staffGrid.SelectedItem is SchoolStaff selectedStaff &&
+                schoolBox.SelectedItem is School chosenSchool)
+                Safe(() => ShowStaffProfile(chosenSchool.Id, selectedStaff.Id));
+        };
+        root.Children.Add(Btn("فتح ملف الموظف المحدد", (_, _) => Safe(() =>
+        {
+            if (staffGrid.SelectedItem is not SchoolStaff selectedStaff ||
+                schoolBox.SelectedItem is not School chosenSchool)
+                throw new InvalidOperationException("حدد الموظف المطلوب فتح ملفه من الجدول.");
+            ShowStaffProfile(chosenSchool.Id, selectedStaff.Id);
+        }), tone: "secondary"));
 
         var editor = Stack();
         editor.Children.Add(Label("إضافة موظف أو تعديل الاسم والبيانات: اختر السجل من الجدول، صحح الحقول ثم اضغط حفظ الموظف.", 16, true));
@@ -553,7 +594,7 @@ public partial class MainWindow : Window
         root.Children.Add(Box(importPanel));
         root.Children.Add(Box(editor));
         Display("كادر المدارس والسجلات", root);
-        schoolBox.SelectedIndex = 0;
+        schoolBox.SelectedItem = schools.FirstOrDefault(s => s.Id == preferredSchoolId) ?? schools[0];
     }
 
     private sealed class EnrollmentInput
