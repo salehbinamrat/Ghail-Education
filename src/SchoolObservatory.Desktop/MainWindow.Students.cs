@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Media;
 using Microsoft.Win32;
 using SchoolObservatory.Core;
@@ -76,7 +77,8 @@ public partial class MainWindow
         };
         root.Children.Add(Box(LineOfFields(("المدرسة", schoolPicker), ("الصف والشعبة", gradePicker))));
         var selectedCount = Label("عدد الطلاب في الكشف: 0", 14, true);
-        root.Children.Add(selectedCount);
+        selectedCount.Foreground = new SolidColorBrush(Color.FromRgb(5, 91, 131));
+        root.Children.Add(Box(selectedCount, new Thickness(12)));
         var search = Field(width: 285);
         search.ToolTip = "بحث فوري باسم الطالب أو رقمه في الكشف الحالي";
         root.Children.Add(Box(LineOfFields(("بحث في كشف الصف", search)), new Thickness(12)));
@@ -119,6 +121,109 @@ public partial class MainWindow
             Info("تم تصدير كشف الصف المحدد بصيغة CSV UTF-8.");
         }), false, "secondary");
         root.Children.Add(exportRoster);
+        var printRoster = Btn("طباعة كشف الصف", (_, _) => Safe(() =>
+        {
+            if (schoolPicker.SelectedItem is not School school ||
+                gradePicker.SelectedItem is not SchoolGrade grade)
+                throw new InvalidOperationException("اختر المدرسة والصف والشعبة أولا.");
+            if (!AccessPolicy.CanManageStudents(_actor, school.Id))
+                throw new UnauthorizedAccessException("لا تملك صلاحية طباعة الكشف التفصيلي.");
+
+            // Obtain a complete, authoritative roster; a search filter must not accidentally
+            // truncate the official printable class list.
+            var students = _store.GetStudents(_actor, school.Id, grade.Id);
+            var printer = new PrintDialog();
+            if (printer.ShowDialog() != true) return;
+            var width = Math.Max(320, printer.PrintableAreaWidth);
+            var height = Math.Max(450, printer.PrintableAreaHeight);
+            var document = new FlowDocument
+            {
+                FlowDirection = FlowDirection.RightToLeft,
+                FontFamily = new FontFamily("Segoe UI"),
+                FontSize = 11,
+                PageWidth = width,
+                PageHeight = height,
+                PagePadding = new Thickness(28),
+                ColumnWidth = width - 56
+            };
+            document.Blocks.Add(new Paragraph(new Run("المرصد المدرسي — كشف طلاب المدرسة"))
+            {
+                FontSize = 18, FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(Color.FromRgb(7, 82, 126)),
+                TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 0, 0, 8)
+            });
+            document.Blocks.Add(new Paragraph(new Run(
+                $"المدرسة: {school.Name} ({school.Code})   |   {grade.DisplayName}   |   العام الدراسي: {grade.AcademicYear}"))
+            {
+                FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+            document.Blocks.Add(new Paragraph(new Run(
+                $"عدد الطلاب: {students.Count}   |   تاريخ الطباعة: {DateTime.Now.ToString("yyyy/MM/dd", CultureInfo.InvariantCulture)}"))
+            {
+                TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 0, 0, 12)
+            });
+
+            var columns = school.Gender == "مختلطة"
+                ? new[] { "م", "رقم الطالب", "اسم الطالب", "الصف", "الشعبة", "الجنس", "ولي الأمر" }
+                : new[] { "م", "رقم الطالب", "اسم الطالب", "الصف", "الشعبة", "ولي الأمر" };
+            var table = new Table { CellSpacing = 0 };
+            foreach (var label in columns)
+            {
+                var weight = label == "اسم الطالب" ? 4 :
+                    label == "ولي الأمر" ? 3 : label == "رقم الطالب" ? 2 : 1;
+                table.Columns.Add(new TableColumn
+                {
+                    Width = new GridLength(weight, GridUnitType.Star)
+                });
+            }
+            var group = new TableRowGroup();
+            table.RowGroups.Add(group);
+            void AppendRow(IReadOnlyList<string> cells, bool header)
+            {
+                var row = new TableRow();
+                if (header)
+                    row.Background = new SolidColorBrush(Color.FromRgb(224, 244, 249));
+                foreach (var value in cells)
+                {
+                    row.Cells.Add(new TableCell(new Paragraph(new Run(value))
+                    {
+                        Margin = new Thickness(0), TextAlignment = TextAlignment.Right
+                    })
+                    {
+                        Padding = new Thickness(4, 6, 4, 6),
+                        BorderBrush = new SolidColorBrush(Color.FromRgb(188, 218, 226)),
+                        BorderThickness = new Thickness(0, 0, 0, 0.7),
+                        FontWeight = header ? FontWeights.Bold : FontWeights.Normal
+                    });
+                }
+                group.Rows.Add(row);
+            }
+            AppendRow(columns, true);
+            for (var i = 0; i < students.Count; i++)
+            {
+                var student = students[i];
+                var cells = new List<string>
+                {
+                    (i + 1).ToString(CultureInfo.InvariantCulture), student.StudentCode,
+                    student.FullName, student.Grade.ToString(CultureInfo.InvariantCulture),
+                    student.Section
+                };
+                if (school.Gender == "مختلطة") cells.Add(student.Gender);
+                cells.Add(student.GuardianName);
+                AppendRow(cells, false);
+            }
+            document.Blocks.Add(table);
+            document.Blocks.Add(new Paragraph(new Run(
+                "مراجعة مسؤول المدرسة: ...........................     التوقيع والختم: ..........................."))
+            {
+                Margin = new Thickness(0, 22, 0, 0),
+                TextAlignment = TextAlignment.Right
+            });
+            printer.PrintDocument(((IDocumentPaginatorSource)document).DocumentPaginator,
+                $"كشف {school.Name} — {grade.DisplayName}");
+        }), false, "secondary");
+        root.Children.Add(printRoster);
         var editor = Stack();
         editor.Children.Add(Label("إضافة طالب إلى الصف والشعبة المختارين", 17, true));
         var studentCode = Field(width: 170);
@@ -156,33 +261,37 @@ public partial class MainWindow
         {
             var selectedSchool = schoolPicker.SelectedItem as School;
             var selectedGrade = gradePicker.SelectedItem as SchoolGrade;
-            if (selectedSchool is null)
+            if (selectedSchool is null || selectedGrade is null)
             {
                 roster.ItemsSource = Array.Empty<StudentRosterItem>();
                 rosterCache = Array.Empty<SchoolStudent>();
                 cachedSchoolId = null;
                 cachedGradeId = null;
-                selectedCount.Text = "عدد الطلاب في الكشف: 0";
+                selectedCount.Text = selectedSchool is null
+                    ? "اختر المدرسة لعرض كشوف الطلاب."
+                    : "لا يوجد كشف محدد. أضف صفا وشعبة أو اختر كشفا موجودا.";
+                editor.IsEnabled = false;
+                exportRoster.IsEnabled = false;
+                printRoster.IsEnabled = false;
                 return;
             }
-            if (reload || cachedSchoolId != selectedSchool.Id || cachedGradeId != selectedGrade?.Id)
+            if (reload || cachedSchoolId != selectedSchool.Id || cachedGradeId != selectedGrade.Id)
             {
-                rosterCache = _store.GetStudents(_actor, selectedSchool.Id, selectedGrade?.Id);
+                rosterCache = _store.GetStudents(_actor, selectedSchool.Id, selectedGrade.Id);
                 cachedSchoolId = selectedSchool.Id;
-                cachedGradeId = selectedGrade?.Id;
+                cachedGradeId = selectedGrade.Id;
             }
             var students = rosterCache;
             var filter = search.Text.Trim();
-            var visible = students.Where(s => filter.Length == 0 ||
-                s.FullName.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
-                s.StudentCode.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToArray();
+            var visible = SchoolStudentSearch.Find(students, filter);
             roster.ItemsSource = visible.Select(s => new StudentRosterItem(s)).ToArray();
             selectedCount.Text = filter.Length == 0
                 ? $"عدد الطلاب في الكشف: {students.Count}"
-                : $"نتائج البحث: {visible.Length} من أصل {students.Count} طالب";
+                : $"نتائج البحث: {visible.Count} من أصل {students.Count} طالب";
             editor.IsEnabled = AccessPolicy.CanManageStudents(_actor, selectedSchool.Id) &&
                 selectedGrade is not null;
             exportRoster.IsEnabled = editor.IsEnabled;
+            printRoster.IsEnabled = editor.IsEnabled;
         }
 
         var newGrade = Choice(Enumerable.Range(1, 12).Select(x => x.ToString(CultureInfo.InvariantCulture)), 100);
@@ -249,11 +358,21 @@ public partial class MainWindow
             if (suppressGradeSelection) return;
             ClearSearch(); ResetEditor(); RefreshRoster();
         });
-        roster.SelectionChanged += (_, _) =>
+        void OpenSelectedStudent()
         {
             if (roster.SelectedItem is StudentRosterItem selected &&
                 schoolPicker.SelectedItem is School school)
                 Safe(() => ShowStudentProfile(school, selected.Student.Id));
+            else
+                Info("حدد طالبا من الكشف ثم اضغط «فتح ملف الطالب المحدد» أو انقر نقرا مزدوجا على اسمه.");
+        }
+        // Keyboard navigation and sorting must not unexpectedly open another student's file.
+        roster.MouseDoubleClick += (_, e) =>
+        {
+            DependencyObject? origin = e.OriginalSource as DependencyObject;
+            while (origin is not null && origin is not DataGridRow && origin != roster)
+                origin = VisualTreeHelper.GetParent(origin);
+            if (origin is DataGridRow) OpenSelectedStudent();
         };
 
         var actions = new WrapPanel();
@@ -277,9 +396,15 @@ public partial class MainWindow
         var import = Stack();
         import.Children.Add(Label("استيراد كشف الطلاب من Excel أو Word", 16, true));
         import.Children.Add(Label("يدعم .xlsx و.docx المنظمة. يلزم رقم الطالب والاسم والصف، وتُقبل الشعبة والجنس ورمز المدرسة وولي الأمر كأعمدة إضافية. أضف الصف والشعبة قبل الاستيراد.", 13));
+        bool isImporting = false;
         import.Children.Add(Btn("اختيار ملف واستيراد الطلاب", async (_, _) =>
         {
+            if (isImporting) return;
             if (schoolPicker.SelectedItem is not School school) return;
+            isImporting = true;
+            import.IsEnabled = false;
+            schoolPicker.IsEnabled = false;
+            gradePicker.IsEnabled = false;
             try
             {
                 var dialog = new OpenFileDialog
@@ -307,6 +432,14 @@ public partial class MainWindow
             {
                 MessageBox.Show(ex.Message, "تعذر استيراد كشف الطلاب",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally
+            {
+                isImporting = false;
+                schoolPicker.IsEnabled = true;
+                gradePicker.IsEnabled = true;
+                import.IsEnabled = schoolPicker.SelectedItem is School current &&
+                    AccessPolicy.CanManageStudents(_actor, current.Id);
             }
         }, tone: "secondary"));
         root.Children.Add(Box(import));
