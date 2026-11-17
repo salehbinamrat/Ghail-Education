@@ -118,15 +118,21 @@ public sealed partial class SqliteStore
         var context=LoadImportContext(con,tx);
         var batchId=Id();
         var now=Utc();
+        var warnings=preview.Entity switch
+        {
+            ImportEntity.Students => "سجلات الطلاب ذات تاريخ دراسي؛ لا يدعم النظام التراجع الآلي عن دفعاتهم.",
+            ImportEntity.Sections => "يمكن التراجع عن الشعب الجديدة فقط إذا لم ترتبط بطلاب أو تاريخ دراسي.",
+            _ => ""
+        };
         using(var batch=Cmd(con,tx,"""
             INSERT INTO import_batches(id,entity_type,source_name,source_sha256,academic_year,
                 actor_id,created,updated,unchanged,rejected,warnings,status,imported_utc)
-            VALUES($id,$entity,$source,$hash,$year,$actor,$new,$changed,$same,0,'','applied',$now)
+            VALUES($id,$entity,$source,$hash,$year,$actor,$new,$changed,$same,0,$warnings,'applied',$now)
             """,("$id",batchId),("$entity",preview.Entity.ToString()),
             ("$source",Path.GetFileName(preview.SourceName)),("$hash",preview.SourceSha256),
             ("$year",refreshed.AcademicYear),("$actor",actor.Id),
             ("$new",refreshed.Created),("$changed",refreshed.Updated),
-            ("$same",refreshed.Unchanged),("$now",now)))
+            ("$same",refreshed.Unchanged),("$warnings",warnings),("$now",now)))
             batch.ExecuteNonQuery();
 
         foreach(var plan in refreshed.Rows)
@@ -204,7 +210,7 @@ public sealed partial class SqliteStore
         tx.Commit();
         return new ImportBatchSummary(batchId,preview.Entity,Path.GetFileName(preview.SourceName),
             refreshed.AcademicYear,now,actor.Username,refreshed.Created,refreshed.Updated,
-            refreshed.Unchanged,0,"applied","");
+            refreshed.Unchanged,0,"applied",warnings);
     }
 
     private static void WriteImportedSchool(SqliteConnection con,SqliteTransaction tx,
