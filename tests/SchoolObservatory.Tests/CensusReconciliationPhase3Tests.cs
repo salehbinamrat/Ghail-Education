@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using SchoolObservatory.Core;
 using SchoolObservatory.Data;
 using Xunit;
@@ -19,6 +20,62 @@ public sealed class CensusReconciliationPhase3Tests
         var schools = db.GetSchools(owner);
         return (db, owner, schools.Single(x => x.Code == "P3-01"),
             schools.Single(x => x.Code == "P3-02"));
+    }
+
+    [Fact]
+    public void AnApprovedCensusCannotBeOverwrittenThroughRawDatabaseCommands()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "phase3-lock-" + Guid.NewGuid().ToString("N") + ".db");
+        var db = new SqliteStore(path);
+        db.Initialize();
+        db.InitializeAdministrator("غيل بن يمين", "2026/2027", "founder", "Strong-Founder-Password-123!");
+        var owner = db.Authenticate("founder", "Strong-Founder-Password-123!")!;
+        db.AddSchool(owner, "LOCK-1", "مدرسة الحصون", "الحصون", "حكومية", "أساسي", "ذكور");
+        var school = Assert.Single(db.GetSchools(owner));
+        db.SaveDraft(owner, school.Id, new CensusData([new EnrollmentLine("1", 2, 0)], 1, 0, 1, ""));
+        var submitted = db.GetLatestSubmission(owner, school.Id)!;
+        db.CreateUser(owner, "principal4", "Strong-Password-123!", Roles.Principal, school.Id);
+        var principal = db.Authenticate("principal4", "Strong-Password-123!")!;
+        db.ChangeStatus(owner, submitted.Id, "submit");
+        db.ChangeStatus(principal, submitted.Id, "school_approve");
+        db.ChangeStatus(owner, submitted.Id, "district_approve");
+        using var con = DatabaseSecurity.OpenForRegressionTest(path);
+        using var overwrite = con.CreateCommand();
+        overwrite.CommandText = "UPDATE submissions SET male_teachers=999 WHERE id=$id";
+        overwrite.Parameters.AddWithValue("$id", submitted.Id);
+        Assert.Throws<SqliteException>(() => overwrite.ExecuteNonQuery());
+        using var child = con.CreateCommand();
+        child.CommandText = "UPDATE enrollment_rows SET boys=999 WHERE submission_id=$id";
+        child.Parameters.AddWithValue("$id", submitted.Id);
+        Assert.Throws<SqliteException>(() => child.ExecuteNonQuery());
+        Assert.Equal(2, db.GetLatestSubmission(owner, school.Id)!.Data.Students);
+        Assert.Equal(1, db.GetLatestSubmission(owner, school.Id)!.Data.Teachers);
+    }
+
+    [Fact]
+    public void UpgradingSchemaThreeKeepsApprovedAndOriginalRecordIdentity()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "phase3-v3-" + Guid.NewGuid().ToString("N") + ".db");
+        var db = new SqliteStore(path);
+        db.Initialize();
+        db.InitializeAdministrator("غيل بن يمين", "2026/2027", "founder", "Strong-Founder-Password-123!");
+        var owner = db.Authenticate("founder", "Strong-Founder-Password-123!")!;
+        db.AddSchool(owner, "MIG-1", "مدرسة العام", "العليب", "حكومية", "أساسي", "ذكور");
+        var identity = Assert.Single(db.GetSchools(owner));
+        using (var con = DatabaseSecurity.OpenForRegressionTest(path))
+        {
+            using var old = con.CreateCommand();
+            old.CommandText = "PRAGMA user_version=3; DROP TRIGGER IF EXISTS p3_approved_submission_update;";
+            old.ExecuteNonQuery();
+        }
+        db.Initialize();
+        Assert.Equal(identity.Id, Assert.Single(db.GetSchools(owner)).Id);
+        using var verify = DatabaseSecurity.OpenForRegressionTest(path);
+        using var check = verify.CreateCommand();
+        check.CommandText = "PRAGMA user_version;";
+        Assert.Equal(4L, Convert.ToInt64(check.ExecuteScalar()));
+        Assert.NotEmpty(Directory.GetFiles(
+            Path.Combine(Path.GetDirectoryName(path)!, "recovery"), "before-schema-*.db"));
     }
 
     [Fact]
