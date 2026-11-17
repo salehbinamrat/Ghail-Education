@@ -164,18 +164,30 @@ public sealed partial class SqliteStore
               (SELECT COUNT(*) FROM school_council_members c JOIN schools s ON s.id=c.school_id
                WHERE c.is_active=1 AND s.is_active=1
                  AND ($scope IS NULL OR s.id=$scope)),
-              (SELECT COUNT(*) FROM school_staff st JOIN schools s ON s.id=st.school_id
-                JOIN staff_personnel_details p ON p.staff_id=st.id
-                WHERE st.is_active=1 AND s.is_active=1 AND p.assignment_status='مباشر'
-                  AND ($scope IS NULL OR s.id=$scope)),
-              (SELECT COUNT(*) FROM school_staff st JOIN schools s ON s.id=st.school_id
-                JOIN staff_personnel_details p ON p.staff_id=st.id
-                WHERE st.is_active=1 AND s.is_active=1 AND p.assignment_status IN ('منتدب','مكلف','معار')
-                  AND ($scope IS NULL OR s.id=$scope)),
-              (SELECT COUNT(*) FROM school_staff st JOIN schools s ON s.id=st.school_id
-                LEFT JOIN staff_personnel_details p ON p.staff_id=st.id
+              (SELECT COUNT(DISTINCT st.id) FROM school_staff st
+                JOIN schools s ON s.id=st.school_id
+                JOIN employee_assignments a ON a.employee_id=st.id
                 WHERE st.is_active=1 AND s.is_active=1
-                  AND COALESCE(p.assignment_status,'غير محدد') NOT IN ('مباشر','منتدب','مكلف','معار')
+                  AND a.assignment_type<>'إجازة'
+                  AND a.workplace_school_id=st.school_id
+                  AND (a.start_date IS NULL OR a.start_date<=$today)
+                  AND (a.end_date IS NULL OR a.end_date>=$today)
+                  AND ($scope IS NULL OR s.id=$scope)),
+              (SELECT COUNT(DISTINCT st.id) FROM school_staff st
+                JOIN schools s ON s.id=st.school_id
+                JOIN employee_assignments a ON a.employee_id=st.id
+                WHERE st.is_active=1 AND s.is_active=1
+                  AND a.assignment_type<>'إجازة'
+                  AND a.workplace_school_id<>st.school_id
+                  AND (a.start_date IS NULL OR a.start_date<=$today)
+                  AND (a.end_date IS NULL OR a.end_date>=$today)
+                  AND ($scope IS NULL OR s.id=$scope)),
+              (SELECT COUNT(*) FROM school_staff st JOIN schools s ON s.id=st.school_id
+                WHERE st.is_active=1 AND s.is_active=1
+                  AND NOT EXISTS(SELECT 1 FROM employee_assignments a
+                      WHERE a.employee_id=st.id AND a.assignment_type<>'إجازة'
+                        AND (a.start_date IS NULL OR a.start_date<=$today)
+                        AND (a.end_date IS NULL OR a.end_date>=$today))
                   AND ($scope IS NULL OR s.id=$scope)),
               (SELECT CASE WHEN $scope IS NOT NULL THEN 0 ELSE COUNT(*) END
                FROM (
@@ -185,7 +197,8 @@ public sealed partial class SqliteStore
                   HAVING COUNT(DISTINCT school_id)>1
                ))
             """, ("$scope", actor.Role is Roles.Entry or Roles.Principal ? actor.SchoolId : null),
-            ("$year", AcademicYear));
+            ("$year", AcademicYear),
+            ("$today", DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
         using var r = cmd.ExecuteReader();
         if (!r.Read()) throw new InvalidOperationException("تعذر حساب المؤشرات المباشرة.");
         int Number(int column) => checked((int)r.GetInt64(column));
