@@ -614,4 +614,25 @@ public sealed class AcademicHistoryPhase2Tests
         Assert.NotEmpty(Directory.GetFiles(
             Path.Combine(Path.GetDirectoryName(path)!, "recovery"), "before-schema-*.db"));
     }
+
+    [Fact]
+    public void EmptyClosedAcademicYearCannotBeRenamedOrDeletedBehindTheOfficialArchive()
+    {
+        var (db, owner, _, _, path) = Prepare();
+        db.OpenAcademicYear(owner, "2027/2028");
+        db.ActivateAcademicYear(owner, "2027/2028");
+        db.CloseAcademicYear(owner, "2026/2027");
+        using var con = DatabaseSecurity.OpenForRegressionTest(path);
+        using (var rename = con.CreateCommand())
+        {
+            rename.CommandText = "UPDATE academic_years SET year='2001/2002' WHERE year='2026/2027'";
+            Assert.Throws<Microsoft.Data.Sqlite.SqliteException>(() => rename.ExecuteNonQuery());
+        }
+        using (var remove = con.CreateCommand())
+        {
+            remove.CommandText = "DELETE FROM academic_years WHERE year='2026/2027'";
+            Assert.Throws<Microsoft.Data.Sqlite.SqliteException>(() => remove.ExecuteNonQuery());
+        }
+        Assert.True(db.GetAcademicYears(owner).Single(y => y.Year == "2026/2027").IsClosed);
+    }
 }
