@@ -20,21 +20,34 @@ public sealed partial class SqliteStore
             SELECT st.id,st.school_id,sc.name,st.employee_code,st.full_name,
                    st.category,st.job_title,st.qualification,
                    COALESCE(p.employment_type,'غير محدد'),
-                   COALESCE(p.assignment_status,'غير محدد'),
-                   CASE
-                     WHEN p.assignment_status IN ('منتدب','مكلف','معار')
-                       THEN COALESCE(NULLIF(TRIM(p.actual_workplace),''),'جهة غير مسجلة')
-                     WHEN p.assignment_status='مباشر'
-                       THEN COALESCE(NULLIF(TRIM(p.actual_workplace),''),sc.name)
-                     ELSE 'غير محدد'
-                   END,
+                   CASE WHEN a.id IS NULL THEN 'غير محدد'
+                        WHEN a.start_date IS NULL AND
+                             a.notes IN ('سجل أصلي','سجل أصلي مرحل')
+                             AND COALESCE(p.assignment_status,'غير محدد')<>'غير محدد'
+                        THEN p.assignment_status
+                        ELSE a.assignment_type END,
+                   CASE WHEN a.id IS NULL THEN 'غير محدد'
+                        WHEN a.start_date IS NULL AND
+                             a.notes IN ('سجل أصلي','سجل أصلي مرحل')
+                             AND p.assignment_status IN ('منتدب','مكلف','معار')
+                             AND NULLIF(TRIM(p.actual_workplace),'') IS NOT NULL
+                        THEN TRIM(p.actual_workplace)
+                        ELSE COALESCE(work.name,'غير محدد') END,
                    st.is_active
             FROM school_staff st
             JOIN schools sc ON sc.id=st.school_id
             LEFT JOIN staff_personnel_details p ON p.staff_id=st.id
+            LEFT JOIN employee_assignments a ON a.id=(
+                SELECT ea.id FROM employee_assignments ea
+                WHERE ea.employee_id=st.id
+                    AND (ea.start_date IS NULL OR ea.start_date<=$today)
+                    AND (ea.end_date IS NULL OR ea.end_date>=$today)
+                ORDER BY ea.start_date DESC,ea.created_utc DESC LIMIT 1)
+            LEFT JOIN schools work ON work.id=a.workplace_school_id
             WHERE ($scope IS NULL OR st.school_id=$scope)
             ORDER BY sc.name,st.category,st.full_name,st.employee_code
-            """, ("$scope", actor.Role is Roles.Entry or Roles.Principal ? actor.SchoolId : null));
+            """, ("$scope", actor.Role is Roles.Entry or Roles.Principal ? actor.SchoolId : null),
+            ("$today", DateTime.Today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)));
         var result = new List<DistrictStaffDirectoryRow>();
         using var r = cmd.ExecuteReader();
         while (r.Read())
