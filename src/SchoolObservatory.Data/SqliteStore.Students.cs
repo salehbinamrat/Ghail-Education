@@ -531,6 +531,35 @@ public sealed partial class SqliteStore
         tx.Commit();
     }
 
+    /// <summary>Correct one current-year evaluation without deleting its historical identity.</summary>
+    public void UpdateStudentAssessment(UserAccount actor, string schoolId, string studentId,
+        string assessmentId, string category, string rating, string notes)
+    {
+        RequireFreshActor(actor);
+        if (!AccessPolicy.CanManageStudentEvaluation(actor, schoolId))
+            throw new UnauthorizedAccessException("لا تملك صلاحية تصحيح تقييمات الطلاب.");
+        if (category is not ("المشاركة" or "السلوك" or "المواظبة" or "المهارات" or "التقييم العام") ||
+            rating is not ("ممتاز" or "جيد جدا" or "جيد" or "مقبول" or "يحتاج متابعة"))
+            throw new ArgumentException("اختر فئة التقييم والتقدير من القيم المتاحة.");
+        ValidateNarrative(notes);
+        var year = AcademicYear;
+        using var con = Open();
+        using var tx = con.BeginTransaction();
+        StudentBelongs(con, tx, schoolId, studentId);
+        RequireEnrolledYear(con, tx, schoolId, studentId, year);
+        using var cmd = Cmd(con, tx, """
+            UPDATE student_assessments SET category=$category,rating=$rating,notes=$notes
+            WHERE id=$id AND student_id=$student AND school_id=$s AND academic_year=$year
+            """, ("$id", assessmentId), ("$student", studentId), ("$s", schoolId),
+            ("$year", year), ("$category", category), ("$rating", rating),
+            ("$notes", notes.Trim()));
+        if (cmd.ExecuteNonQuery() != 1)
+            throw new InvalidOperationException("التقييم غير موجود أو يخص عاما دراسيا سابقا؛ لا يجوز تغييره من هنا.");
+        Audit(con, tx, actor.Id, "student.assessment_correct", assessmentId,
+            $"school={schoolId};student={studentId};year={year}");
+        tx.Commit();
+    }
+
     public IReadOnlyList<StudentAttendance> GetStudentAttendance(UserAccount actor,
         string schoolId, string studentId)
     {
