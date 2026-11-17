@@ -116,6 +116,16 @@ public sealed partial class SqliteStore
             """);
         schema.ExecuteNonQuery();
 
+        // Never guess a legacy attendance year from a calendar date. Legacy rows
+        // remain null/immutable; all new attendance rows explicitly bind to a year.
+        using (var column = Cmd(con, null,
+            "SELECT COUNT(*) FROM pragma_table_info('student_attendance') WHERE name='academic_year'"))
+            if (Convert.ToInt32(column.ExecuteScalar(), CultureInfo.InvariantCulture) == 0)
+            {
+                using var alter = Cmd(con, null,
+                    "ALTER TABLE student_attendance ADD COLUMN academic_year TEXT NULL REFERENCES academic_years(year)");
+                alter.ExecuteNonQuery();
+            }
         // Existing Phase 1 years, students and staff are mapped without changing their IDs.
         using var seed = Cmd(con, null, """
             INSERT OR IGNORE INTO academic_years(year,status,is_active,opened_utc)
@@ -167,14 +177,13 @@ public sealed partial class SqliteStore
             ("student_enrollments", "academic_year"),
             ("student_results", "academic_year"),
             ("student_assessments", "academic_year"),
-            ("student_attendance", "substr(attendance_date,1,4) || '/' || printf('%04d',cast(substr(attendance_date,1,4) as integer)+1)"),
+            ("student_attendance", "academic_year"),
             ("submissions", "(SELECT academic_year FROM census_rounds WHERE id=round_id)"),
             ("student_placement_events", "academic_year")
         })
         {
-            // Attendance's calendar date cannot reliably identify an academic year:
-            // guard it by enrolled academic year instead of the calendar year.
-            if (table == "student_attendance") continue;
+            // Academic-year column is explicit for new attendance. Legacy null rows
+            // must remain immutable until an authorized historical reconciliation.
             foreach (var action in new[] { "INSERT", "UPDATE", "DELETE" })
             {
                 var prefix = action == "DELETE" ? "OLD" : "NEW";
@@ -185,12 +194,20 @@ public sealed partial class SqliteStore
                     OR EXISTS(SELECT 1 FROM academic_years
                       WHERE year={YearExpr("OLD")} AND status='closed')
                     """ : "";
+                var unknownAttendance = table == "student_attendance"
+                    ? action switch
+                    {
+                        "INSERT" => " OR NEW.academic_year IS NULL",
+                        "UPDATE" => " OR OLD.academic_year IS NULL OR NEW.academic_year IS NULL",
+                        _ => " OR OLD.academic_year IS NULL"
+                    }
+                    : "";
                 var expr = YearExpr(prefix);
                 using var trigger = Cmd(con, null, $"""
                     CREATE TRIGGER IF NOT EXISTS phase2_lock_{table}_{action.ToLowerInvariant()}
                     BEFORE {action} ON {table}
                     WHEN EXISTS(SELECT 1 FROM academic_years
-                      WHERE year={expr} AND status='closed') {oldCheck}
+                      WHERE year={expr} AND status='closed') {oldCheck} {unknownAttendance}
                     BEGIN SELECT RAISE(ABORT,'Academic year is closed'); END;
                     """);
                 trigger.ExecuteNonQuery();
