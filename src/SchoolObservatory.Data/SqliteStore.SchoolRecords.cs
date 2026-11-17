@@ -21,6 +21,20 @@ public sealed partial class SqliteStore
                 alter.ExecuteNonQuery();
             }
         }
+        // Additive upgrade: the original schools.stage CHECK did not contain kindergarten.
+        // Preserve all existing school IDs, foreign keys, census and account records.
+        using (var checkKindergarten = Cmd(con, null,
+            "SELECT COUNT(*) FROM pragma_table_info('schools') WHERE name='is_kindergarten'"))
+        {
+            if (Convert.ToInt32(checkKindergarten.ExecuteScalar(), CultureInfo.InvariantCulture) == 0)
+            {
+                using var alter = Cmd(con, null, """
+                    ALTER TABLE schools ADD COLUMN is_kindergarten INTEGER NOT NULL DEFAULT 0
+                    CHECK(is_kindergarten IN (0,1))
+                    """);
+                alter.ExecuteNonQuery();
+            }
+        }
         using var cmd = Cmd(con, null, """
             CREATE TABLE IF NOT EXISTS school_staff (
                 id TEXT PRIMARY KEY,
@@ -50,13 +64,41 @@ public sealed partial class SqliteStore
 
     private static string DatabaseStage(string stage)
     {
-        if (stage is not ("أساسي" or "ثانوي" or "مجمع تربوي" or "أساسي وثانوي"))
-            throw new ArgumentException("المرحلة يجب أن تكون أساسي أو ثانوي أو مجمع تربوي.");
-        return stage == "مجمع تربوي" ? "أساسي وثانوي" : stage;
+        if (stage is not ("روضة" or "أساسي" or "ثانوي" or "مجمع تربوي" or "أساسي وثانوي"))
+            throw new ArgumentException("المرحلة يجب أن تكون روضة أو أساسي أو ثانوي أو مجمع تربوي.");
+        return stage switch
+        {
+            "مجمع تربوي" => "أساسي وثانوي",
+            "روضة" => "أساسي", // Original CHECK preserved; display relies on is_kindergarten.
+            _ => stage
+        };
     }
 
     private static string DisplayStage(string stage) =>
         stage == "أساسي وثانوي" ? "مجمع تربوي" : stage;
+
+    private static void EnsureKindergartenTransitionCompatible(
+        SqliteConnection con, SqliteTransaction tx, string schoolId, bool kindergarten)
+    {
+        using var current = Cmd(con, tx,
+            "SELECT is_kindergarten FROM schools WHERE id=$s", ("$s", schoolId));
+        var stored = current.ExecuteScalar();
+        if (stored is null)
+            throw new InvalidOperationException("المدرسة غير موجودة.");
+        if ((Convert.ToInt32(stored, CultureInfo.InvariantCulture) == 1) == kindergarten)
+            return;
+
+        // The same grade number means something different in kindergarten and primary school.
+        // Prevent silent reinterpretation of school records.
+        using var records = Cmd(con, tx, """
+            SELECT EXISTS(SELECT 1 FROM school_grades WHERE school_id=$s)
+                OR EXISTS(SELECT 1 FROM school_students WHERE school_id=$s)
+                OR EXISTS(SELECT 1 FROM submissions WHERE school_id=$s)
+            """, ("$s", schoolId));
+        if (Convert.ToInt32(records.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
+            throw new InvalidOperationException(
+                "لا يمكن تحويل المرحلة إلى روضة أو منها بعد تسجيل صفوف أو طلاب أو إحصاءات؛ حفاظا على السجلات.");
+    }
 
     private static void ValidateStaff(SchoolStaff staff)
     {
@@ -152,10 +194,12 @@ public sealed partial class SqliteStore
         using var con = Open();
         using var tx = con.BeginTransaction();
         EnsureSchoolStructureCompatible(con, tx, schoolId, storedStage, gender);
+        EnsureKindergartenTransitionCompatible(con, tx, schoolId, stage == "روضة");
         using (var cmd = Cmd(con, tx, """
-            UPDATE schools SET stage=$stage,gender=$gender
+            UPDATE schools SET stage=$stage,gender=$gender,is_kindergarten=$kindergarten
             WHERE id=$s AND is_active=1
-            """, ("$s", schoolId), ("$stage", storedStage), ("$gender", gender)))
+            """, ("$s", schoolId), ("$stage", storedStage), ("$gender", gender),
+                ("$kindergarten", stage == "روضة" ? 1 : 0)))
         {
             if (cmd.ExecuteNonQuery() != 1)
                 throw new InvalidOperationException("المدرسة غير موجودة أو غير نشطة.");
