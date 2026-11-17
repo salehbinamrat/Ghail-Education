@@ -30,9 +30,10 @@ public sealed record School(string Id, string Code, string Name, string Zone, st
 public sealed record SchoolStaff(string Id, string SchoolId, string EmployeeCode, string FullName,
     string Category, string JobTitle, string Specialization, string Qualification, string Gender, bool IsActive);
 /// <summary>Grade and section within one school and one academic year.</summary>
-public sealed record SchoolGrade(string Id, string SchoolId, string AcademicYear, int Grade, string Section)
+public sealed record SchoolGrade(string Id, string SchoolId, string AcademicYear, int Grade, string Section,
+    string Stage = "")
 {
-    public string DisplayName => $"الصف {Grade} — الشعبة {Section}";
+    public string DisplayName => $"{GradeNames.ForStage(Stage, Grade)} — الشعبة {Section}";
 }
 public sealed record SchoolStudent(string Id, string SchoolId, string StudentCode, string FullName,
     int Grade, string Section, string Gender, string GuardianName, string GuardianPhone,
