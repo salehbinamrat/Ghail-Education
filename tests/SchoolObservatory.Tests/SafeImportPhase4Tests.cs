@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using SchoolObservatory.Core;
 using SchoolObservatory.Data;
 using Xunit;
@@ -96,6 +97,34 @@ public sealed class SafeImportPhase4Tests
         Assert.Throws<ArgumentException>(() => db.DeleteEmptySchool(actor,unused.Id,"WRONG"));
         db.DeleteEmptySchool(actor,unused.Id,unused.Code);
         Assert.DoesNotContain(db.GetSchools(actor),x=>x.Id==unused.Id);
+    }
+
+    [Fact]
+    public void RejectsEmbeddedMacrosAndSuspiciousHighlyCompressedOfficePayloads()
+    {
+        var path=Path.Combine(Path.GetTempPath(),"phase4-office-"+Guid.NewGuid()+".xlsx");
+        try
+        {
+            using(var archive=ZipFile.Open(path,ZipArchiveMode.Create))
+            {
+                using(var output=archive.CreateEntry("xl/worksheets/sheet1.xml").Open())
+                using(var writer=new StreamWriter(output))
+                    writer.Write("<worksheet/>");
+                using(var payload=archive.CreateEntry("xl/vbaProject.bin").Open())
+                    payload.WriteByte(1);
+            }
+            Assert.Throws<ArgumentException>(()=>ImportTableReader.Read(path));
+            File.Delete(path);
+            using(var archive=ZipFile.Open(path,ZipArchiveMode.Create))
+            using(var output=archive.CreateEntry("xl/worksheets/sheet1.xml").Open())
+            {
+                var bytes=new byte[2_000_000];
+                Array.Fill(bytes,(byte)'A');
+                output.Write(bytes);
+            }
+            Assert.Throws<ArgumentException>(()=>ImportTableReader.Read(path));
+        }
+        finally { File.Delete(path); }
     }
 
     [Fact]
