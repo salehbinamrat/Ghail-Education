@@ -44,7 +44,7 @@ jobs:
       - name: Native SQLCipher x86 and x64 recovery smoke tests
         shell: pwsh
         run: |
-          $x86Root = Join-Path $env:RUNNER_TEMP 'dotnet-x86'
+          $x86Root = Join-Path $env:RUNNER_TEMP 'dotnet-x86\x86'
           $x64Root = Join-Path $env:ProgramFiles 'dotnet'
           if (!(Test-Path (Join-Path $x86Root 'dotnet.exe'))) {
             throw 'Native 32-bit dotnet host missing: release packages forbidden'
