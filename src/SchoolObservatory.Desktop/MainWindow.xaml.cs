@@ -264,78 +264,94 @@ public partial class MainWindow : Window
         Close();
     }
 
+    private static Border DashboardCard(string caption, int value, Color accent)
+    {
+        var group = Stack();
+        group.Children.Add(new TextBlock
+        {
+            Text = caption, FontFamily = new FontFamily("Arial"), FontWeight = FontWeights.Bold,
+            FontSize = 15, Foreground = new SolidColorBrush(Color.FromRgb(56, 75, 97)),
+            TextWrapping = TextWrapping.Wrap, MinHeight = 37
+        });
+        group.Children.Add(new TextBlock
+        {
+            Text = value.ToString("N0", CultureInfo.CurrentCulture),
+            FontFamily = new FontFamily("Arial"), FontSize = 29, FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(accent), Margin = new Thickness(0, 6, 0, 0)
+        });
+        return new Border
+        {
+            Child = group, Background = Brushes.White, CornerRadius = new CornerRadius(12),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(197, 222, 231)),
+            BorderThickness = new Thickness(1, 1, 1, 3),
+            Padding = new Thickness(15, 12, 15, 12),
+            Width = 223, MinHeight = 113, Margin = new Thickness(0, 0, 10, 10)
+        };
+    }
+
     private void ShowDashboard()
     {
         var data = _store.GetDashboard(_actor);
-        // Live operational figures use current school / student / staff rows.
-        // Approved census snapshots are preserved as a separate official section.
         var live = _store.GetLiveDirectoryTotals(_actor);
         var root = Stack();
-        root.Children.Add(Label($"أهلا بك في { _store.DistrictName } — نظرة عامة على البيانات المعتمدة", 17));
-        var tiles = new WrapPanel { Margin = new Thickness(0, 12, 0, 14) };
-        foreach (var (title, count) in new (string, int)[] {
-            ("المدارس النشطة", data.Schools), ("الإحصاءات المعتمدة", data.Approved),
-            ("قيد المراجعة", data.Submitted), ("طلاب الإحصاء المعتمد", data.Students),
-            ("معلمو الإحصاء المعتمد", data.Teachers), ("الفصول", data.Classrooms) })
+        root.Children.Add(Label($"مرصد مدارس { _store.DistrictName }", 21, true));
+        root.Children.Add(Label(
+            "ملخص واحد للبيانات الحالية. الأعداد التشغيلية ترتبط بكشوف المدارس مباشرة، أما الإحصاء المعتمد فيخضع للمراجعة.", 14));
+
+        root.Children.Add(Label("البيانات المدرسية الحالية", 18, true));
+        var cards = new WrapPanel { Margin = new Thickness(0, 8, 0, 14) };
+        var values = new List<(string Title, int Value, Color Accent)>
         {
-            var tile = Stack();
-            tile.Children.Add(new TextBlock { Text = title, FontSize = 14, Foreground = _muted });
-            tile.Children.Add(new TextBlock { Text = count.ToString("N0", CultureInfo.CurrentCulture),
-                FontSize = 26, FontWeight = FontWeights.Bold, Foreground = _primary, Margin = new Thickness(0, 9, 0, 0) });
-            var card = Box(tile);
-            card.Width = 220; card.Margin = new Thickness(0, 0, 12, 12);
-            tiles.Children.Add(card);
-        }
-        root.Children.Add(tiles);
-        root.Children.Add(Label("مؤشرات السجلات المباشرة — تتحدث عند الإضافة أو التعديل أو الأرشفة", 18, true));
-        var liveTiles = new WrapPanel { Margin = new Thickness(0, 6, 0, 12) };
-        var liveNumbers = new List<(string Title, int Count)>
-        {
-            ("المدارس النشطة", live.Schools),
-            ("أعضاء مجالس الآباء والأمهات", live.CouncilMembers)
+            ("المدارس النشطة", live.Schools, Color.FromRgb(8, 111, 151)),
+            ("مجالس الآباء والأمهات", live.CouncilMembers, Color.FromRgb(119, 77, 165))
         };
         if (live.StudentsVisible)
         {
-            liveNumbers.Add(("الطلاب المسجلون حاليا", live.ActiveStudents));
-            liveNumbers.Add(("الشعب والكشوف", live.Sections));
+            values.Add(("الطلاب النشطون", live.ActiveStudents, Color.FromRgb(16, 131, 106)));
+            values.Add(("الشعب الدراسية المسجلة", live.Sections, Color.FromRgb(24, 117, 169)));
         }
         if (live.StaffVisible)
         {
-            liveNumbers.Add(("المعلمون في كشوف المدرسة", live.ActiveTeachers));
-            liveNumbers.Add(("الإداريون في الكشوف", live.ActiveAdministrators));
-            liveNumbers.Add(("الأخصائيون في الكشوف", live.ActiveSpecialists));
-            liveNumbers.Add(("المباشرون حسب بيانات العمل", live.DirectStaff));
-            liveNumbers.Add(("المنتدبون والمكلفون والمعارون", live.SecondedStaff));
-            liveNumbers.Add(("إجازة أو حالة عمل غير محددة", live.UnclassifiedStaff));
+            values.Add(("المعلمون في الكشوف", live.ActiveTeachers, Color.FromRgb(19, 117, 151)));
+            values.Add(("الإداريون في الكشوف", live.ActiveAdministrators, Color.FromRgb(143, 101, 37)));
+            values.Add(("الأخصائيون الاجتماعيون", live.ActiveSpecialists, Color.FromRgb(122, 78, 163)));
         }
-        foreach (var (title, count) in liveNumbers)
+        foreach (var (title, value, accent) in values)
+            cards.Children.Add(DashboardCard(title, value, accent));
+        root.Children.Add(cards);
+
+        if (live.StaffVisible)
         {
-            var tile = Stack();
-            tile.Children.Add(new TextBlock
-            {
-                Text = title, FontSize = 15, Foreground = _muted,
-                TextWrapping = TextWrapping.Wrap
-            });
-            tile.Children.Add(new TextBlock
-            {
-                Text = count.ToString("N0", CultureInfo.CurrentCulture), FontSize = 27,
-                FontWeight = FontWeights.Bold, Foreground = _primary,
-                Margin = new Thickness(0, 8, 0, 0)
-            });
-            var card = Box(tile);
-            card.Width = 235;
-            card.Margin = new Thickness(0, 0, 10, 10);
-            liveTiles.Children.Add(card);
+            var staffing = Stack();
+            staffing.Children.Add(Label("التوزيع الوظيفي حسب حالة العمل المسجلة", 16, true));
+            staffing.Children.Add(Label(
+                $"مباشر: {live.DirectStaff:N0}   |   منتدب/مكلف/معار: {live.SecondedStaff:N0}   |   إجازة أو حالة غير محددة: {live.UnclassifiedStaff:N0}", 15));
+            staffing.Children.Add(Label(
+                "هذا توزيع الكادر نفسه وليس إضافة أعداد جديدة إلى الإجمالي؛ الموظف المنتدب يظل في كشوف مدرسته.", 13));
+            root.Children.Add(Box(staffing, new Thickness(13)));
         }
-        root.Children.Add(liveTiles);
         if (live.StaffVisible && _actor.Role is not (Roles.Entry or Roles.Principal) &&
             live.DuplicateEmployeeCodes > 0)
             root.Children.Add(Box(Label(
-                $"تنبيه جودة البيانات: توجد {live.DuplicateEmployeeCodes} أرقام وظيفية مسجلة في أكثر من مدرسة. راجع تنبيهات كشف الكادر الموحد قبل اعتماد الأعداد.", 15, true)));
-        root.Children.Add(Label("الإحصاء الرسمي المعتمد (مستقل عن السجلات المباشرة)", 18, true));
-        root.Children.Add(Box(Label("تُحتسب أعداد الطلاب والمعلمين والفصول من الاستمارات المعتمدة فقط. الاستمارات غير المعتمدة لا تدخل في المجموع الرسمي.", 15)));
-        root.Children.Add(Box(Label("تنبيه أمني: النسخة الأولى محلية وغير مشفرة بعد؛ لا تستخدم بيانات شخصية حساسة حتى اكتمال متطلبات الإنتاج.", 14)));
-        root.Children.Add(Btn("تحديث المؤشرات", (_, _) => ShowDashboard()));
+                $"تنبيه جودة البيانات: توجد {live.DuplicateEmployeeCodes} أرقام وظيفية مرتبطة بأكثر من مدرسة. افتح كادر المدارس لتصحيحها دون فقد السجلات.", 15, true)));
+
+        root.Children.Add(Label("حالة الاعتماد الرسمي", 18, true));
+        var approvalCards = new WrapPanel { Margin = new Thickness(0, 8, 0, 12) };
+        approvalCards.Children.Add(DashboardCard("الإحصاء المعتمد", data.Approved,
+            Color.FromRgb(15, 126, 92)));
+        approvalCards.Children.Add(DashboardCard("الاستمارات قيد المراجعة", data.Submitted,
+            Color.FromRgb(168, 111, 32)));
+        root.Children.Add(approvalCards);
+        root.Children.Add(Label(
+            "إجماليات الطلاب والمعلمين والفصول في الإحصاء الرسمي تظهر في التقارير المعتمدة، ولا تتكرر هنا.", 13));
+
+        var actions = new WrapPanel { Margin = new Thickness(0, 6, 0, 8) };
+        actions.Children.Add(Btn("تحديث المؤشرات", (_, _) => ShowDashboard(), tone: "secondary"));
+        if (AccessPolicy.Has(_actor, PermissionFlags.ViewReports))
+            actions.Children.Add(Btn("فتح التقارير المعتمدة", (_, _) => ShowReports(), tone: "primary"));
+        root.Children.Add(actions);
+        root.Children.Add(Label(
+            "تنبيه أمني: قاعدة البيانات المحلية لم تُشفر بعد؛ احفظ نسخة احتياطية واحم بيانات الطلاب والموظفين.", 13));
         Display("لوحة التحكم", root);
     }
 
@@ -750,12 +766,8 @@ public partial class MainWindow : Window
         public string Girls { get; set; } = "";
     }
 
-    private static int Count(string text, string label)
-    {
-        if (!int.TryParse(text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int value) || value < 0)
-            throw new ArgumentException($"أدخل عددا صحيحا غير سالب في خانة {label}.");
-        return value;
-    }
+    private static int Count(string text, string label) =>
+        CensusNumberInput.ParseNonNegative(text, label);
 
     private static int[] GradesFor(School school)
     {
