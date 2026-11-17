@@ -44,7 +44,7 @@ public sealed class AcademicHistoryPhase2Tests
         db.CloseAcademicYear(owner, "2026/2027");
         var years = db.GetAcademicYears(owner);
         Assert.Equal(2, years.Count);
-        Assert.Single(years.Where(y => y.IsActive));
+        Assert.Single(years, y => y.IsActive);
         Assert.True(years.Single(y => y.Year == "2026/2027").IsClosed);
         Assert.Single(db.GetStudentResults(owner, a.Id, id));
         Assert.Single(db.GetStudentAttendance(owner, a.Id, id));
