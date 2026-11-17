@@ -143,6 +143,8 @@ public sealed partial class SqliteStore
         UserAccount actor, ImportEntity entity, string sourceName, ImportTable table,
         IReadOnlyDictionary<string,int> mapping, string? defaultSchoolId)
     {
+        if(entity==ImportEntity.Sections)
+            return BuildSectionsPreview(con,tx,actor,sourceName,table,mapping,defaultSchoolId);
         if (entity==ImportEntity.Schools && !AccessPolicy.CanEditSchool(actor))
             throw new UnauthorizedAccessException("استيراد المدارس يتطلب صلاحية إدارة المدارس.");
         if (entity!=ImportEntity.Schools && !AccessPolicy.Has(actor,PermissionFlags.ViewSchools))
