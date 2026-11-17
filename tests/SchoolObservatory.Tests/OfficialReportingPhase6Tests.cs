@@ -1,4 +1,6 @@
 using System.IO.Compression;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Validation;
 using System.Xml.Linq;
 using SchoolObservatory.Core;
 using SchoolObservatory.Data;
@@ -187,5 +189,32 @@ public sealed class OfficialReportingPhase6Tests
             Assert.NotEmpty(report.StatusLabel);
             Assert.True(report.RecordCount >= 0);
         }
+    }
+
+    [Fact]
+    public void StandardOpenXmlReaderAcceptsFormattedArabicWorkbookWithoutSchemaErrors()
+    {
+        var report = new ReportTable(ReportKind.SchoolDirectory, "دليل المدارس",
+            "إدارة التربية والتعليم بمديرية غيل بن يمين", "2026/2027",
+            DateTimeOffset.Parse("2026-11-18T07:00:00+03:00"),
+            "بيانات تشغيلية - غير معتمد", false, false,
+            ["المدرسة", "الرمز", "العدد"],
+            [new ReportRow(["مدرسة العليب", "001", "20"]),
+             new ReportRow(["مدرسة الريدة", "=SUM(4,5)", "18"])],
+            new Dictionary<string, long> { ["students"] = 38 },
+            ["المنطقة: العليب"]);
+        using var stream = new MemoryStream();
+        XlsxReportWriter.Write(stream, report);
+        stream.Position = 0;
+        using var workbook = SpreadsheetDocument.Open(stream, false);
+        Assert.NotNull(workbook.WorkbookPart);
+        var sheet = Assert.Single(workbook.WorkbookPart.WorksheetParts);
+        var view = Assert.Single(sheet.Worksheet
+            .Descendants<DocumentFormat.OpenXml.Spreadsheet.SheetView>());
+        Assert.True(view.RightToLeft?.Value);
+        var errors = new OpenXmlValidator().Validate(workbook).ToArray();
+        Assert.True(errors.Length == 0,
+            "SpreadsheetML schema violations: " +
+            string.Join(" | ", errors.Take(10).Select(e => e.Description)));
     }
 }
