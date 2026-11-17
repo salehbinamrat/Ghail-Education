@@ -80,7 +80,7 @@ public sealed class PerformanceRegressionTests
     {
         var (db, _, path) = Prepare();
         db.Initialize();
-        using var c = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
+        using var c = DatabaseSecurity.OpenForRegressionTest(path);
         c.Open();
         using var cmd = c.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='ix_submissions_round_school_revision'";

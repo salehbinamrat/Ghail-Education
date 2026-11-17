@@ -1,4 +1,5 @@
 using System.Windows;
+using Microsoft.Win32;
 using SchoolObservatory.Data;
 
 namespace SchoolObservatory.Desktop;
@@ -45,6 +46,39 @@ public partial class SetupWindow : Window
         catch (Exception ex)
         {
             MessageBox.Show(ex.Message, "التحقق من البيانات", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void RestoreBackup_Click(object sender, RoutedEventArgs e)
+    {
+        if (_store.HasUsers())
+        {
+            MessageBox.Show("استعادة قاعدة بها حسابات تتطلب مسؤول النظام من داخل البرنامج.");
+            return;
+        }
+        var picker = new OpenFileDialog
+        {
+            Title = "اختيار نسخة مشفرة من جهاز Windows آخر",
+            Filter = "School Observatory backup (*.sobak)|*.sobak",
+            CheckFileExists = true
+        };
+        if (picker.ShowDialog(this) != true) return;
+        var secretPrompt = new RecoveryPasswordDialog { Owner = this };
+        if (secretPrompt.ShowDialog() != true) return;
+        if (MessageBox.Show(
+            "سيتم استبدال قاعدة البيانات الجديدة الفارغة بكامل بيانات النسخة المشفرة. هل أنت متأكد؟",
+            "استعادة حسابات وبيانات المدارس", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            return;
+        try
+        {
+            _store.RestoreBeforeInitialSetup(picker.FileName, secretPrompt.RecoveryPassword, confirmed: true);
+            MessageBox.Show("تمت الاستعادة. سجل الدخول بأحد حسابات قاعدة البيانات المستعادة.");
+            DialogResult = true;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("فشلت الاستعادة دون استبدال قاعدة البيانات: " + ex.Message,
+                "فشل الاستعادة", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 

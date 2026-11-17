@@ -173,8 +173,7 @@ public sealed class StudentRecordsTests
         store.SaveStudent(owner, Student(boys, "Y01", "سالم"));
         var student = Assert.Single(store.GetStudents(owner, boys.Id));
         store.SaveStudentResult(owner, boys.Id, student.Id, "الفصل الأول", "العربية", 90, 100, "");
-        using (var connection = new Microsoft.Data.Sqlite.SqliteConnection(
-            new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = path }.ToString()))
+        using (var connection = DatabaseSecurity.OpenForRegressionTest(path))
         {
             connection.Open();
             using var cmd = connection.CreateCommand();

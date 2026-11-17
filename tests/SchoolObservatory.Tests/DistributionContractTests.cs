@@ -47,6 +47,32 @@ public sealed class DistributionContractTests
     }
 
     [Fact]
+    public void PublishedPhaseOneReleaseNotesMustDescribeEncryptedStorage()
+    {
+        var workflow = File.ReadAllText(RootFile(".github", "workflows", "publish-downloads.yml"));
+        Assert.Contains("SQLCipher", workflow, StringComparison.Ordinal);
+        Assert.Contains("نسخة احتياطية مشفرة", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("قاعدة البيانات المحلية غير مشفرة", workflow, StringComparison.Ordinal);
+    }
+
+
+    [Fact]
+    public void WindowsReleaseRunsNativeX86TestsUsingAnIsolated32BitDotnetHost()
+    {
+        var workflow = File.ReadAllText(RootFile(".github", "workflows", "windows-release.yml"));
+        // The runner's normal DOTNET_ROOT refers to x64. An x86 testhost cannot
+        // load its hostfxr.dll (0x800700C1) unless a separate x86 runtime exists.
+        Assert.Contains("architecture: x86", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet-x86", workflow, StringComparison.Ordinal);
+        Assert.Contains(@"Join-Path $env:RUNNER_TEMP 'dotnet-x86\x86'", workflow, StringComparison.Ordinal);
+        Assert.Contains("$env:DOTNET_ROOT_X86 = $x86Root", workflow, StringComparison.Ordinal);
+        Assert.Contains("Join-Path $x86Root 'dotnet.exe'", workflow, StringComparison.Ordinal);
+        Assert.Contains("SCHOOL_OBSERVATORY_EXPECTED_ARCH = 'x86'", workflow, StringComparison.Ordinal);
+        Assert.Contains("SCHOOL_OBSERVATORY_EXPECTED_ARCH = 'x64'", workflow, StringComparison.Ordinal);
+        Assert.Contains("needs: release-tests", workflow, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PublicationRequiresSameMainCommitBothWorkflowsSucceeded()
     {
         var workflow = File.ReadAllText(RootFile(".github", "workflows", "publish-downloads.yml"));

@@ -53,6 +53,9 @@
         <Button x:Name="CreateAdministratorButton" Content="إنشاء المسؤول الأول والمتابعة"
                 Click="Create_Click" Height="44" FontWeight="Bold" Background="#00AFC0"
                 AutomationProperties.Name="إنشاء المسؤول الأول"/>
+        <Button x:Name="RecoveryButton" Content="استعادة نسخة مشفرة من جهاز آخر" Click="RestoreBackup_Click"
+                Height="40" Background="#7054AF" Foreground="White"
+                AutomationProperties.Name="استعادة البيانات قبل إنشاء الحساب الأول"/>
         <Button x:Name="ExistingLoginButton" Content="لدي حساب بالفعل — تسجيل الدخول"
                 Click="ExistingLogin_Click" Height="40" Background="#126AA7"
                 AutomationProperties.Name="تسجيل الدخول بحساب موجود"/>

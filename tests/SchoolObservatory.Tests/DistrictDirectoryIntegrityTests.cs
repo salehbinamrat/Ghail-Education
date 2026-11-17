@@ -124,7 +124,7 @@ public sealed class DistrictDirectoryIntegrityTests
         db.SaveSchoolStaff(owner, Member(a, "LEG-1"));
         // An old database may already have duplicate payroll codes across schools;
         // additive migrations must never delete either historical row.
-        using (var con = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()))
+        using (var con = DatabaseSecurity.OpenForRegressionTest(path))
         {
             con.Open();
             using var cmd = con.CreateCommand();
