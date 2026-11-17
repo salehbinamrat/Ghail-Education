@@ -59,6 +59,17 @@ public sealed class StudentRosterInteractionTests
     }
 
     [Fact]
+    public void ClassRosterSupportsOfficialPrintableDocumentWithSchoolAndYear()
+    {
+        var source = ReadProjectSource();
+        Assert.Contains("طباعة كشف الصف", source, StringComparison.Ordinal);
+        Assert.Contains("new FlowDocument", source, StringComparison.Ordinal);
+        Assert.Contains("PrintDocument(", source, StringComparison.Ordinal);
+        Assert.Contains("العام الدراسي", source, StringComparison.Ordinal);
+        Assert.Contains("printRoster.IsEnabled = editor.IsEnabled", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void StudentImportDisablesRepeatedExecutionAndRestoresControls()
     {
         var source = ReadProjectSource();
