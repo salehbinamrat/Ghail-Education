@@ -162,7 +162,27 @@ public sealed partial class SqliteStore
                  AND ($scope IS NULL OR s.id=$scope)),
               (SELECT COUNT(*) FROM school_council_members c JOIN schools s ON s.id=c.school_id
                WHERE c.is_active=1 AND s.is_active=1
-                 AND ($scope IS NULL OR s.id=$scope))
+                 AND ($scope IS NULL OR s.id=$scope)),
+              (SELECT COUNT(*) FROM school_staff st JOIN schools s ON s.id=st.school_id
+                JOIN staff_personnel_details p ON p.staff_id=st.id
+                WHERE st.is_active=1 AND s.is_active=1 AND p.assignment_status='مباشر'
+                  AND ($scope IS NULL OR s.id=$scope)),
+              (SELECT COUNT(*) FROM school_staff st JOIN schools s ON s.id=st.school_id
+                JOIN staff_personnel_details p ON p.staff_id=st.id
+                WHERE st.is_active=1 AND s.is_active=1 AND p.assignment_status IN ('منتدب','مكلف','معار')
+                  AND ($scope IS NULL OR s.id=$scope)),
+              (SELECT COUNT(*) FROM school_staff st JOIN schools s ON s.id=st.school_id
+                LEFT JOIN staff_personnel_details p ON p.staff_id=st.id
+                WHERE st.is_active=1 AND s.is_active=1
+                  AND COALESCE(p.assignment_status,'غير محدد') NOT IN ('مباشر','منتدب','مكلف','معار')
+                  AND ($scope IS NULL OR s.id=$scope)),
+              (SELECT CASE WHEN $scope IS NOT NULL THEN 0 ELSE COUNT(*) END
+               FROM (
+                  SELECT TRIM(employee_code) AS code FROM school_staff
+                  WHERE LENGTH(TRIM(employee_code))>0
+                  GROUP BY TRIM(employee_code) COLLATE NOCASE
+                  HAVING COUNT(DISTINCT school_id)>1
+               ))
             """, ("$scope", actor.Role is Roles.Entry or Roles.Principal ? actor.SchoolId : null),
             ("$year", AcademicYear));
         using var r = cmd.ExecuteReader();
@@ -174,6 +194,10 @@ public sealed partial class SqliteStore
             canViewStaff ? Number(3) : 0,
             canViewStaff ? Number(4) : 0,
             canViewStudents ? Number(5) : 0,
-            Number(6), canViewStudents, canViewStaff);
+            Number(6), canViewStudents, canViewStaff,
+            canViewStaff ? Number(7) : 0,
+            canViewStaff ? Number(8) : 0,
+            canViewStaff ? Number(9) : 0,
+            canViewStaff && actor.Role is not (Roles.Entry or Roles.Principal) ? Number(10) : 0);
     }
 }
