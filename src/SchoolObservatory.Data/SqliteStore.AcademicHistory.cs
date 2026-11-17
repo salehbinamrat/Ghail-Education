@@ -470,7 +470,101 @@ public sealed partial class SqliteStore
                 WHERE id=NEW.id;
             END;
             """))
+
             protect.ExecuteNonQuery();
+        // Schema v3: the v2 triggers guarded the OLD academic-year relationship
+        // when updating rows. Reparenting an OPEN year's record to a CLOSED year
+        // could therefore evade the lock. Enforce both ends of every transition.
+        // These guards are additive and idempotent for previously migrated v2 files.
+        using (var historicalGuards = Cmd(con, null, """
+            CREATE TRIGGER IF NOT EXISTS p2_closed_target_grade
+            BEFORE UPDATE ON school_grades
+            WHEN EXISTS(SELECT 1 FROM academic_years
+                        WHERE year=NEW.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Cannot reassign a class into a closed academic year'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_target_enrollment
+            BEFORE UPDATE ON student_enrollments
+            WHEN EXISTS(SELECT 1 FROM academic_years
+                        WHERE year=NEW.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Cannot reassign enrollment into a closed academic year'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_target_history
+            BEFORE UPDATE ON student_history
+            WHEN EXISTS(SELECT 1 FROM academic_years
+                        WHERE year=NEW.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Cannot reassign history into a closed academic year'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_target_results
+            BEFORE UPDATE ON student_results
+            WHEN EXISTS(SELECT 1 FROM academic_years
+                        WHERE year=NEW.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Cannot reassign results into a closed academic year'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_target_assessments
+            BEFORE UPDATE ON student_assessments
+            WHEN EXISTS(SELECT 1 FROM academic_years
+                        WHERE year=NEW.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Cannot reassign assessment into a closed academic year'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_target_attendance
+            BEFORE UPDATE ON student_attendance
+            WHEN EXISTS(SELECT 1 FROM academic_years
+                        WHERE year=NEW.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Cannot reassign attendance into a closed academic year'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_target_transfer_results
+            BEFORE UPDATE ON transferred_student_results
+            WHEN EXISTS(SELECT 1 FROM academic_years
+                        WHERE year=NEW.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Cannot reassign transferred results into a closed academic year'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_target_transfer_attendance
+            BEFORE UPDATE ON transferred_student_attendance
+            WHEN EXISTS(SELECT 1 FROM academic_years
+                        WHERE year=NEW.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Cannot reassign transferred attendance into a closed academic year'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_target_transfer_assessments
+            BEFORE UPDATE ON transferred_student_assessments
+            WHEN EXISTS(SELECT 1 FROM academic_years
+                        WHERE year=NEW.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Cannot reassign transferred assessments into a closed academic year'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_target_census
+            BEFORE UPDATE ON submissions
+            WHEN EXISTS(SELECT 1 FROM census_rounds r
+                        JOIN academic_years y ON y.year=r.academic_year
+                        WHERE r.id=NEW.round_id AND y.is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Cannot move official census into a closed academic year'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_target_enrollment_rows
+            BEFORE UPDATE ON enrollment_rows
+            WHEN EXISTS(SELECT 1 FROM submissions s
+                        JOIN census_rounds r ON r.id=s.round_id
+                        JOIN academic_years y ON y.year=r.academic_year
+                        WHERE s.id=NEW.submission_id AND y.is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Cannot move enrollment totals into a closed academic year'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_target_decisions
+            BEFORE UPDATE ON decisions
+            WHEN EXISTS(SELECT 1 FROM submissions s
+                        JOIN census_rounds r ON r.id=s.round_id
+                        JOIN academic_years y ON y.year=r.academic_year
+                        WHERE s.id=NEW.submission_id AND y.is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Cannot move official decisions into a closed academic year'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_target_room
+            BEFORE UPDATE ON section_room_assignments
+            WHEN EXISTS(SELECT 1 FROM academic_years
+                        WHERE year=NEW.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'Cannot reassign room schedules into a closed academic year'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_target_census_round
+            BEFORE UPDATE ON census_rounds
+            WHEN EXISTS(SELECT 1 FROM academic_years
+                        WHERE year=OLD.academic_year AND is_closed=1)
+              OR EXISTS(SELECT 1 FROM academic_years
+                        WHERE year=NEW.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'A closed academic year census round is immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_delete_census_round
+            BEFORE DELETE ON census_rounds
+            WHEN EXISTS(SELECT 1 FROM academic_years
+                        WHERE year=OLD.academic_year AND is_closed=1)
+            BEGIN SELECT RAISE(ABORT,'A closed academic year census round cannot be deleted'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_year_reopen
+            BEFORE UPDATE OF is_closed ON academic_years
+            WHEN OLD.is_closed=1 AND NEW.is_closed=0
+            BEGIN SELECT RAISE(ABORT,'Closed official academic years cannot be reopened'); END;
+            """))
+            historicalGuards.ExecuteNonQuery();
     }
 
     private static void CheckYearFormat(string year)
