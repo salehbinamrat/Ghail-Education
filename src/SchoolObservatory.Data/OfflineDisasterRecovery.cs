@@ -30,7 +30,11 @@ public static partial class OfflineDisasterRecovery
             try
             {
                 using var existing = DatabaseSecurity.OpenForRecoveryCheck(db);
-                DatabaseSecurity.ValidateRecoverySource(existing);
+                // A missing/older application table is not database corruption and must
+                // NEVER grant an unauthenticated path around the owner-only restore UI.
+                // Integrity and foreign-key verification are sufficient to distinguish
+                // a readable database from a genuinely damaged/unopenable one.
+                _ = DatabaseSecurity.TableCounts(existing);
                 throw new UnauthorizedAccessException("The current database is readable; sign in as its owner to restore.");
             }
             catch (UnauthorizedAccessException) { throw; }
