@@ -30,16 +30,40 @@ jobs:
       - run: dotnet restore SchoolObservatory.sln
       - run: dotnet build SchoolObservatory.sln --configuration Release --no-restore -warnaserror
       - run: dotnet test SchoolObservatory.sln --configuration Release --no-build --no-restore --logger "trx;LogFileName=release-tests.trx"
-      # Before publishing any distribution, verify the native SQLCipher-compatible engine
-      # and backup/restore regressions under BOTH Windows process architectures.
+      # GitHub's x64 DOTNET_ROOT cannot load into an x86 testhost (hostfxr 0x800700C1).
+      # Install the real x86 SDK/runtime in its own directory. Never point it at x64.
+      - name: Install isolated x86 .NET 10 SDK for native encryption tests
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+          architecture: x86
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}\dotnet-x86
+      # Before publishing any distribution, execute backup/restore regressions under
+      # both actual Windows process architectures with matching native host runtimes.
       - name: Native SQLCipher x86 and x64 recovery smoke tests
         shell: pwsh
         run: |
-          foreach ($arch in @('x86','x64')) {
-            $env:SCHOOL_OBSERVATORY_EXPECTED_ARCH = $arch
-            dotnet test tests/SchoolObservatory.Tests/SchoolObservatory.Tests.csproj --configuration Release --arch $arch --filter "FullyQualifiedName~DatabaseSecurityPhase1Tests" --logger "trx;LogFileName=security-$arch.trx"
-            if ($LASTEXITCODE -ne 0) { throw "Native $arch encryption/recovery tests failed: packaging forbidden" }
+          $x86Root = Join-Path $env:RUNNER_TEMP 'dotnet-x86'
+          $x64Root = Join-Path $env:ProgramFiles 'dotnet'
+          if (!(Test-Path (Join-Path $x86Root 'dotnet.exe'))) {
+            throw 'Native 32-bit dotnet host missing: release packages forbidden'
           }
+          $env:SCHOOL_OBSERVATORY_EXPECTED_ARCH = 'x86'
+          $env:DOTNET_ROOT = $x86Root
+          $env:DOTNET_ROOT_X86 = $x86Root
+          $env:VSTEST_DOTNET_ROOT_PATH = $x86Root
+          $env:VSTEST_DOTNET_ROOT_ARCHITECTURE = 'x86'
+          & (Join-Path $x86Root 'dotnet.exe') test tests/SchoolObservatory.Tests/SchoolObservatory.Tests.csproj --configuration Release --arch x86 --filter "FullyQualifiedName~DatabaseSecurityPhase1Tests" --logger "trx;LogFileName=security-x86.trx"
+          if ($LASTEXITCODE -ne 0) { throw 'Native x86 encryption/recovery tests failed: packaging forbidden' }
+
+          $env:SCHOOL_OBSERVATORY_EXPECTED_ARCH = 'x64'
+          $env:DOTNET_ROOT = $x64Root
+          $env:DOTNET_ROOT_X64 = $x64Root
+          $env:VSTEST_DOTNET_ROOT_PATH = $x64Root
+          $env:VSTEST_DOTNET_ROOT_ARCHITECTURE = 'x64'
+          & (Join-Path $x64Root 'dotnet.exe') test tests/SchoolObservatory.Tests/SchoolObservatory.Tests.csproj --configuration Release --arch x64 --filter "FullyQualifiedName~DatabaseSecurityPhase1Tests" --logger "trx;LogFileName=security-x64.trx"
+          if ($LASTEXITCODE -ne 0) { throw 'Native x64 encryption/recovery tests failed: packaging forbidden' }
 
   build-packages:
     name: Release / package-${{ matrix.arch }}
