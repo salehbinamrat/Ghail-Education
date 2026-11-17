@@ -126,6 +126,9 @@ public partial class MainWindow
         }
         root.Children.Add(Box(basic));
         AppendSchoolInfrastructure(root, school);
+        if (AccessPolicy.CanSeeStudents(_actor, schoolId))
+            root.Children.Add(Btn("إدارة الغرف الفعلية وربط الشعب", (_, _) =>
+                ShowPhysicalClassrooms(school), tone: "secondary"));
 
         var info = Stack();
         info.Children.Add(Label("المعلومات الإدارية والتواصل", 18, true));
