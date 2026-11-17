@@ -246,6 +246,24 @@ public sealed class AcademicHistoryPhase2Tests
         Assert.Throws<UnauthorizedAccessException>(() => db.GetHistoricalStudents(restricted, a.Id, "2026/2027"));
     }
 
+
+    [Fact]
+    public void PersonnelEditSynchronizesNormalizedCareerWithoutCloningEmployee()
+    {
+        var (db, owner, a, _, _) = Prepare();
+        db.SaveSchoolStaff(owner, new SchoolStaff("", a.Id, "E66", "أحمد",
+            "معلم", "مدرس", "الرياضيات", "بكالوريوس", "ذكور", true));
+        var staffId = Assert.Single(db.GetSchoolStaff(owner, a.Id)).Id;
+        db.SaveStaffPersonnel(owner, a.Id, staffId,
+            new StaffPersonnelDetails("موظف", 2013, null, 2010,
+                "مباشر", "", null, "", ""));
+        var career = db.GetEmployeeCareer(owner, staffId);
+        Assert.Equal(2010, career.QualificationYear);
+        Assert.Equal(2013, career.EmploymentYear);
+        Assert.Equal("موظف", career.EmploymentCategory);
+        Assert.Equal(a.Id, career.OriginalPayrollSchoolId);
+    }
+
     [Fact]
     public void MigrationKeepsExistingStudentStaffAndAuditWithoutChangingIds()
     {
