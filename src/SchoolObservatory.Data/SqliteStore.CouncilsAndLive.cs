@@ -140,6 +140,30 @@ public sealed partial class SqliteStore
         var canViewStaff = AccessPolicy.Has(actor, PermissionFlags.ViewStaff);
         using var con = Open();
         using var cmd = Cmd(con, null, """
+            WITH effective_work AS (
+              SELECT st.id,st.school_id,st.is_active,
+                     CASE
+                       WHEN a.id IS NULL OR a.assignment_type='إجازة' THEN 'unknown'
+                       WHEN a.start_date IS NULL AND
+                            a.notes IN ('سجل أصلي','سجل أصلي مرحل')
+                         THEN CASE
+                           WHEN p.assignment_status='مباشر' THEN 'direct'
+                           WHEN p.assignment_status IN ('منتدب','مكلف','معار')
+                             THEN 'seconded'
+                           ELSE 'unknown'
+                         END
+                       WHEN a.workplace_school_id=st.school_id THEN 'direct'
+                       ELSE 'seconded'
+                     END AS work_status
+              FROM school_staff st
+              LEFT JOIN staff_personnel_details p ON p.staff_id=st.id
+              LEFT JOIN employee_assignments a ON a.id=(
+                  SELECT cur.id FROM employee_assignments cur
+                  WHERE cur.employee_id=st.id
+                    AND (cur.start_date IS NULL OR cur.start_date<=$today)
+                    AND (cur.end_date IS NULL OR cur.end_date>=$today)
+                  ORDER BY cur.start_date DESC,cur.created_utc DESC LIMIT 1)
+            )
             SELECT
               (SELECT COUNT(*) FROM schools s WHERE s.is_active=1
                   AND ($scope IS NULL OR s.id=$scope)),
@@ -164,30 +188,17 @@ public sealed partial class SqliteStore
               (SELECT COUNT(*) FROM school_council_members c JOIN schools s ON s.id=c.school_id
                WHERE c.is_active=1 AND s.is_active=1
                  AND ($scope IS NULL OR s.id=$scope)),
-              (SELECT COUNT(DISTINCT st.id) FROM school_staff st
-                JOIN schools s ON s.id=st.school_id
-                JOIN employee_assignments a ON a.employee_id=st.id
-                WHERE st.is_active=1 AND s.is_active=1
-                  AND a.assignment_type<>'إجازة'
-                  AND a.workplace_school_id=st.school_id
-                  AND (a.start_date IS NULL OR a.start_date<=$today)
-                  AND (a.end_date IS NULL OR a.end_date>=$today)
+              (SELECT COUNT(*) FROM effective_work e
+                JOIN schools s ON s.id=e.school_id
+                WHERE e.is_active=1 AND s.is_active=1 AND e.work_status='direct'
                   AND ($scope IS NULL OR s.id=$scope)),
-              (SELECT COUNT(DISTINCT st.id) FROM school_staff st
-                JOIN schools s ON s.id=st.school_id
-                JOIN employee_assignments a ON a.employee_id=st.id
-                WHERE st.is_active=1 AND s.is_active=1
-                  AND a.assignment_type<>'إجازة'
-                  AND a.workplace_school_id<>st.school_id
-                  AND (a.start_date IS NULL OR a.start_date<=$today)
-                  AND (a.end_date IS NULL OR a.end_date>=$today)
+              (SELECT COUNT(*) FROM effective_work e
+                JOIN schools s ON s.id=e.school_id
+                WHERE e.is_active=1 AND s.is_active=1 AND e.work_status='seconded'
                   AND ($scope IS NULL OR s.id=$scope)),
-              (SELECT COUNT(*) FROM school_staff st JOIN schools s ON s.id=st.school_id
-                WHERE st.is_active=1 AND s.is_active=1
-                  AND NOT EXISTS(SELECT 1 FROM employee_assignments a
-                      WHERE a.employee_id=st.id AND a.assignment_type<>'إجازة'
-                        AND (a.start_date IS NULL OR a.start_date<=$today)
-                        AND (a.end_date IS NULL OR a.end_date>=$today))
+              (SELECT COUNT(*) FROM effective_work e
+                JOIN schools s ON s.id=e.school_id
+                WHERE e.is_active=1 AND s.is_active=1 AND e.work_status='unknown'
                   AND ($scope IS NULL OR s.id=$scope)),
               (SELECT CASE WHEN $scope IS NOT NULL THEN 0 ELSE COUNT(*) END
                FROM (
