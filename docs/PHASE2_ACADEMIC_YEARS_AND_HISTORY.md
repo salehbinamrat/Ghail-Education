@@ -2,7 +2,7 @@
 
 ## Scope and release gate
 
-This additive update advances encrypted SQLCipher databases from schema version 1 to version 2, without rebuilding existing student or staff identities, accounts, passwords, census data, assessment records or audit events. Windows Core and Windows Release must both pass, including x86/x64 native security tests, before publishing the four independent Portable/Installer files.
+The original Phase 2 update advanced encrypted SQLCipher databases from schema version 1 to version 2. The verified Phase 2 hardening upgrade advances version 2 to version 3, without rebuilding existing student or staff identities, accounts, passwords, census data, assessment records or audit events. Windows Core and Windows Release must both pass, including x86/x64 native security tests, before publishing the four independent Portable/Installer files.
 
 ## Academic-year lifecycle
 
@@ -13,7 +13,7 @@ Only the authenticated founding owner may open, activate or close a year.
 - **Close**: closes a non-active year and protects official submissions, census detail rows, approvals, classes, student histories, results, assessments and attendance via database triggers.
 - **Browse**: historical rosters are accessible read-only and enforce the same school-level visibility rules.
 
-A year closure never deletes records and never promotes students automatically.
+A year closure never deletes records and never promotes students automatically. Schema v3 also rejects attempts to **retarget** an open-year record to a closed year, alter census-round year relationships, rename or delete a closed year, or reopen it by direct SQL. Both the previous and new academic-year relationships are guarded on UPDATE.
 
 ## Students and school facilities
 
@@ -45,12 +45,12 @@ Historical legacy workplace notes remain available from Phase 1. Ambiguous emplo
 2. Create and verify a SQLCipher-encrypted pre-schema snapshot in the protected recovery directory.
 3. Apply additive DDL and deterministic backfills within one immediate transaction; preserve legacy tables and identifiers.
 4. Backfill academic years, local codes, placements and employee identities only when missing. Do not invent missing dates.
-5. Mark schema version 2 within the transaction. On error, roll back and preserve the original database plus snapshot.
+5. The original historical-data migration marks schema version 2. Schema v3 installs additional closed-year integrity triggers, creates a verified encrypted pre-migration snapshot when upgrading any existing v1/v2 database, and marks version 3 in the same transaction. On error, roll back and preserve the original database plus snapshot.
 
 Never delete the encrypted database, DPAPI key or protected recovery snapshot during an upgrade. Keep a separate encrypted recovery copy and test offline restoration on a second PC.
 
 ## Verification and limits
 
-Automated tests cover year transitions, closed-record locks, promotion idempotency, same-code school transfers, school boundaries, chained assignments, historical rosters, and preservation of old identifiers. Native encryption checks run on both Windows architectures. Packaging is blocked whenever a required test fails.
+Automated tests cover year transitions, closed-record locks, attempts to move results/attendance/assessments, classes or census submissions into closed years, attempts to rename/delete/reopen closed years, encrypted v2-to-v3 migration with all student IDs and results preserved, promotion idempotency, same-code school transfers, school boundaries, chained assignments, historical rosters, and preservation of old identifiers. Native encryption checks run on both Windows architectures. Packaging is blocked whenever a required test fails.
 
 Tests cannot prove that every installer launches on every physical Windows machine. Perform real-device smoke tests on Windows x86/x64, including SQLCipher migration, restore, Portable start and Installer repair/uninstall, before entering production educational information. Existing ambiguous staff identity records must be reconciled with verifiable evidence; never coalesce them simply by a shared code.
