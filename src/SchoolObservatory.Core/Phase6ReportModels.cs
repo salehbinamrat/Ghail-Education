@@ -49,3 +49,16 @@ public sealed record ReportTable(
             throw new InvalidOperationException("بيانات التعداد غير المعتمدة يجب تمييزها.");
     }
 }
+
+
+/// <summary>User-selected options for provisional print layouts; no claim of government approval.</summary>
+public sealed record ReportPrintOptions(string HeaderNote = "", string FooterNote = "",
+    bool? Landscape = null)
+{
+    public void Validate()
+    {
+        if (HeaderNote.Length > 120 || FooterNote.Length > 80 ||
+            HeaderNote.Contains('\n') || FooterNote.Contains('\n'))
+            throw new ArgumentException("نصوص رأس وتذييل الصفحة طويلة أو تحتوي أسطرا غير مسموحة.");
+    }
+}

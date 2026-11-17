@@ -127,6 +127,10 @@ public static class XlsxReportWriter
                 ["الإجماليات: " + string.Join(" | ", report.Totals.Select(x =>
                     x.Key + ": " + x.Value.ToString(CultureInfo.InvariantCulture)))], 3);
         x.WriteEndElement(); // sheetData
+        x.WriteStartElement("autoFilter");
+        x.WriteAttributeString("ref", "A8:" + Column(report.Columns.Count - 1) +
+            Math.Max(9, report.Rows.Count + 8).ToString(CultureInfo.InvariantCulture));
+        x.WriteEndElement();
         x.WriteStartElement("printOptions"); x.WriteAttributeString("horizontalCentered", "1"); x.WriteEndElement();
         x.WriteStartElement("pageMargins");
         foreach (var (attr, value) in new[] { ("left", "0.3"), ("right", "0.3"),

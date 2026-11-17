@@ -20,10 +20,10 @@ public sealed class ReportPreviewWindow : Window
         Margin = new Thickness(8), FontSize = 13
     };
 
-    public ReportPreviewWindow(ReportTable report)
+    public ReportPreviewWindow(ReportTable report, ReportPrintOptions? options = null)
     {
         _report = report;
-        _document = ReportDocumentRenderer.Build(report);
+        _document = ReportDocumentRenderer.Build(report, options);
         Title = "معاينة الطباعة - " + report.Title;
         Width = 1060; Height = 780; MinWidth = 660; MinHeight = 460;
         FlowDirection = FlowDirection.RightToLeft;

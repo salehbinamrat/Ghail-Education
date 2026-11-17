@@ -26,14 +26,16 @@ public static class ReportDocumentRenderer
     private static readonly Brush Pale = new SolidColorBrush(Color.FromRgb(227, 242, 249));
     private static readonly Brush Line = new SolidColorBrush(Color.FromRgb(197, 220, 230));
 
-    public static FixedDocument Build(ReportTable report)
+    public static FixedDocument Build(ReportTable report, ReportPrintOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(report);
         report.Validate();
+        options ??= new ReportPrintOptions();
+        options.Validate();
         if (report.Rows.Count > 5000)
             throw new InvalidOperationException(
                 "معاينة وطباعة أكثر من 5000 صف تتطلب تصفية السجلات؛ يمكن تصدير الجدول الكامل إلى Excel.");
-        var landscape = report.Columns.Count > 6;
+        var landscape = options.Landscape ?? (report.Columns.Count > 6);
         var width = landscape ? A4Height : A4Width;
         var height = landscape ? A4Width : A4Height;
         var inside = width - 2 * Margin;
@@ -51,6 +53,8 @@ public static class ReportDocumentRenderer
                 FlowDirection = FlowDirection.RightToLeft, FontFamily = Arial
             };
             var y = Margin;
+            if (!string.IsNullOrWhiteSpace(options.HeaderNote))
+                y += AddText(page, options.HeaderNote, Margin, y, inside, 11, Muted, true) + 6;
             y += AddText(page, report.Institution, Margin, y, inside, 15,
                 Ink, true) + 6;
             y += AddText(page, report.Title, Margin, y, inside, 21,
@@ -113,6 +117,8 @@ public static class ReportDocumentRenderer
         {
             var p = pages[i];
             var footerY = height - 45;
+            if (!string.IsNullOrWhiteSpace(options.FooterNote))
+                AddText(p, options.FooterNote, Margin, footerY - 16, inside, 9, Muted, true);
             AddText(p, "المرصد المدرسي  |  " + report.StatusLabel, Margin,
                 footerY, inside * 0.75, 9, Muted, true);
             AddText(p, $"صفحة {i + 1} من {pages.Count}",
@@ -181,7 +187,7 @@ public static class ReportDocumentRenderer
             };
             box.Child = CreateText(cells[j], Math.Max(20, cellWidth - 14),
                 header ? 11.3 : 10.8, header ? Accent : Ink, true);
-            FixedPage.SetLeft(box, left + j * cellWidth);
+            FixedPage.SetLeft(box, left + (cells.Count - 1 - j) * cellWidth);
             FixedPage.SetTop(box, y);
             page.Children.Add(box);
         }

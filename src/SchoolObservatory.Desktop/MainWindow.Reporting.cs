@@ -170,6 +170,16 @@ public partial class MainWindow
         UpdateRelevantFilters();
 
         root.Children.Add(Box(filters));
+        root.Children.Add(Label("تخصيص القالب المبدئي للطباعة (لا يغير بيانات التقرير أو اعتماده)", 15, true));
+        var printHeader = Field(width: 310);
+        printHeader.MaxLength = 120;
+        var printFooter = Field(width: 310);
+        printFooter.MaxLength = 80;
+        var orientation = Pick(["تلقائي حسب الأعمدة", "عمودي A4", "أفقي A4"], 175);
+        root.Children.Add(Box(LineOfFields(
+            ("نص إضافي أعلى التقرير (اختياري)", printHeader),
+            ("نص إضافي أسفل التقرير (اختياري)", printFooter),
+            ("اتجاه الصفحة", orientation))));
         var action = new WrapPanel();
         var run = Btn("عرض التقرير وتطبيق المرشحات", (_, _) => { }, tone: "primary");
         var csv = Btn("تصدير CSV", (_, _) => { }, false, "secondary");
@@ -301,6 +311,21 @@ public partial class MainWindow
                 await Task.Run(() => WriteAtomic(save.FileName, stream =>
                 {
                     using var text = new StreamWriter(stream, new UTF8Encoding(true), leaveOpen: true);
+                    // Preserve classification, provenance and filters in every CSV
+                    // so an unapproved snapshot cannot masquerade as an official one.
+                    foreach (var metadata in new[]
+                    {
+                        new[] { "عنوان التقرير", report.Title },
+                        new[] { "الجهة", report.Institution },
+                        new[] { "العام الدراسي", report.AcademicYear },
+                        new[] { "تاريخ الإنشاء", report.GeneratedAt.ToString("O", CultureInfo.InvariantCulture) },
+                        new[] { "صفة الاعتماد", report.StatusLabel },
+                        new[] { "نوع القالب", "قالب مبدئي غير معتمد كوثيقة حكومية" },
+                        new[] { "عدد السجلات", report.RecordCount.ToString(CultureInfo.InvariantCulture) },
+                        new[] { "المرشحات", string.Join(" | ", report.AppliedFilters) }
+                    })
+                        text.WriteLine(string.Join(",", metadata.Select(CsvCell)));
+                    text.WriteLine();
                     text.WriteLine(string.Join(",", report.Columns.Select(CsvCell)));
                     foreach (var row in report.Rows)
                         text.WriteLine(string.Join(",", row.Cells.Select(CsvCell)));
@@ -315,7 +340,10 @@ public partial class MainWindow
             try
             {
                 var table = await Execute(showTable: true);
-                var dialog = new ReportPreviewWindow(table) { Owner = this };
+                var settings = new ReportPrintOptions(
+                    printHeader.Text.Trim(), printFooter.Text.Trim(),
+                    orientation.SelectedIndex switch { 1 => false, 2 => true, _ => null });
+                var dialog = new ReportPreviewWindow(table, settings) { Owner = this };
                 WindowLayout.FitToWorkArea(dialog);
                 dialog.ShowDialog();
             }
