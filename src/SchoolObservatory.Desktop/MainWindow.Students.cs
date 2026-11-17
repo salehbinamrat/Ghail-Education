@@ -559,7 +559,7 @@ public partial class MainWindow
         tabs.Items.Add(new TabItem { Header = "الملف الأساسي", Content = Box(personal) });
 
         var results = Stack();
-        results.Children.Add(Label("النتائج الدراسية حسب المادة والفصل والسنة", 17, true));
+        results.Children.Add(Label("النتائج الدراسية: اختر نتيجة من العام الحالي لتعديل درجتها أو ملاحظاتها ثم احفظ.", 17, true));
         var resultsGrid = GridFor(Array.Empty<StudentResult>(),
             ("السنة", "AcademicYear", false), ("الفصل", "Term", false),
             ("المادة", "Subject", false), ("الدرجة", "Score", false),
@@ -570,6 +570,18 @@ public partial class MainWindow
         var score = Field(width: 90);
         var maximum = Field("100", 90);
         var resultNote = Field(width: 230);
+        resultNote.MaxLength = 1000;
+        // Click a current-year record to correct its value instead of adding a duplicate.
+        resultsGrid.SelectionChanged += (_, _) =>
+        {
+            if (resultsGrid.SelectedItem is not StudentResult selected ||
+                selected.AcademicYear != _store.AcademicYear) return;
+            term.SelectedItem = selected.Term;
+            subject.Text = selected.Subject;
+            score.Text = selected.Score.ToString(CultureInfo.InvariantCulture);
+            maximum.Text = selected.Maximum.ToString(CultureInfo.InvariantCulture);
+            resultNote.Text = selected.Notes;
+        };
         var canEvaluate = student.IsActive &&
             AccessPolicy.CanManageStudentEvaluation(_actor, school.Id);
         var resultEditor = LineOfFields(("الفصل الدراسي", term), ("المادة", subject),
@@ -588,7 +600,7 @@ public partial class MainWindow
         tabs.Items.Add(new TabItem { Header = "النتائج", Content = Box(results) });
 
         var assessment = Stack();
-        assessment.Children.Add(Label("التقييم التربوي والسلوك والمواظبة", 17, true));
+        assessment.Children.Add(Label("التقييم التربوي: يمكن إضافة تقييم جديد أو تحديد تقييم من العام الحالي وتصحيحه.", 17, true));
         var assessmentsGrid = GridFor(Array.Empty<StudentAssessment>(),
             ("الفئة", "Category", false), ("التقدير", "Rating", false),
             ("الملاحظات", "Notes", false), ("التاريخ", "RecordedAt", false));
@@ -596,6 +608,15 @@ public partial class MainWindow
         var category = Choice(new[] { "المشاركة", "السلوك", "المواظبة", "المهارات", "التقييم العام" }, 170);
         var rating = Choice(new[] { "ممتاز", "جيد جدا", "جيد", "مقبول", "يحتاج متابعة" }, 155);
         var assessmentNote = Field(width: 300);
+        assessmentNote.MaxLength = 1000;
+        assessmentsGrid.SelectionChanged += (_, _) =>
+        {
+            if (assessmentsGrid.SelectedItem is not StudentAssessment selected ||
+                selected.AcademicYear != _store.AcademicYear) return;
+            category.SelectedItem = selected.Category;
+            rating.SelectedItem = selected.Rating;
+            assessmentNote.Text = selected.Notes;
+        };
         var assessmentEditor = LineOfFields(("المجال", category), ("التقدير", rating),
             ("ملاحظات المعلم / الأخصائي", assessmentNote));
         assessmentEditor.IsEnabled = canEvaluate;
@@ -607,16 +628,37 @@ public partial class MainWindow
                 assessmentNote.Text);
             Info("تم حفظ تقييم الطالب."); ShowStudentProfile(school, studentId, 2);
         }), canEvaluate, "purple"));
+        assessment.Children.Add(Btn("حفظ تصحيح التقييم المحدد", (_, _) => Safe(() =>
+        {
+            if (assessmentsGrid.SelectedItem is not StudentAssessment selected)
+                throw new InvalidOperationException("حدد التقييم المطلوب تصحيحه من الجدول.");
+            if (selected.AcademicYear != _store.AcademicYear)
+                throw new InvalidOperationException("التقييم التاريخي متاح للقراءة فقط.");
+            _store.UpdateStudentAssessment(_actor, school.Id, student.Id, selected.Id,
+                category.SelectedItem?.ToString() ?? "",
+                rating.SelectedItem?.ToString() ?? "", assessmentNote.Text);
+            Info("تم تصحيح التقييم دون تغيير ملف الطالب."); ShowStudentProfile(school, studentId, 2);
+        }), canEvaluate, "warning"));
         tabs.Items.Add(new TabItem { Header = "التقييمات", Content = Box(assessment) });
 
         var attendance = Stack();
-        attendance.Children.Add(Label("الحضور والغياب والتأخر والأعذار", 17, true));
+        attendance.Children.Add(Label("الحضور والغياب: اختر تاريخا جديدا أو حدد سجلا سابقا لتصحيح الحالة وملاحظاتها.", 17, true));
         var attendanceGrid = GridFor(Array.Empty<StudentAttendance>(),
             ("اليوم", "Date", false), ("الحالة", "Status", false), ("ملاحظات", "Notes", false));
         attendance.Children.Add(Box(attendanceGrid));
         var date = new DatePicker { SelectedDate = DateTime.Today, Width = 160 };
         var state = Choice(new[] { "حاضر", "غائب", "متأخر", "بعذر" }, 145);
         var attendanceNote = Field(width: 270);
+        attendanceNote.MaxLength = 400;
+        attendanceGrid.SelectionChanged += (_, _) =>
+        {
+            if (attendanceGrid.SelectedItem is not StudentAttendance selected) return;
+            if (DateTime.TryParseExact(selected.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var selectedDay))
+                date.SelectedDate = selectedDay;
+            state.SelectedItem = selected.Status;
+            attendanceNote.Text = selected.Notes;
+        };
         var attendanceEditor = LineOfFields(("التاريخ", date), ("حالة الحضور", state),
             ("ملاحظات", attendanceNote));
         attendanceEditor.IsEnabled = canEvaluate;
