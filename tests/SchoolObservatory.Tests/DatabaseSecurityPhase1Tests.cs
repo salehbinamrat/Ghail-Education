@@ -344,6 +344,44 @@ public sealed class DatabaseSecurityPhase1Tests
     }
 
     [Fact]
+    public void NewerEncryptedSchemaVersionIsNotDowngradedByOlderApplication()
+    {
+        var (db, owner, path) = Build();
+        db.AddSchool(owner, "FUT01", "مدرسة بمخطط أحدث", "العليب", "حكومية", "أساسي");
+        using (var con = DatabaseSecurity.OpenForRegressionTest(path))
+        using (var set = con.CreateCommand())
+        {
+            set.CommandText = "PRAGMA user_version=999;";
+            set.ExecuteNonQuery();
+        }
+        Assert.Throws<InvalidDataException>(() => new SqliteStore(path).Initialize());
+        using var verify = DatabaseSecurity.OpenForRegressionTest(path);
+        using var version = verify.CreateCommand();
+        version.CommandText = "PRAGMA user_version;";
+        Assert.Equal(999L, Convert.ToInt64(version.ExecuteScalar()));
+        Assert.Equal(1, DatabaseSecurity.CountRows(path, "schools"));
+    }
+
+    [Fact]
+    public void NewerPlaintextSchemaIsNotEncryptedOrAlteredByAnOlderApplication()
+    {
+        var path = PathFor();
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+        using (var con = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()))
+        {
+            con.Open();
+            using var cmd = con.CreateCommand();
+            cmd.CommandText = "PRAGMA user_version=999; CREATE TABLE future_records(id INTEGER PRIMARY KEY, value TEXT); INSERT INTO future_records VALUES(1, 'keep exactly');";
+            cmd.ExecuteNonQuery();
+        }
+        SqliteConnection.ClearAllPools();
+        var original = File.ReadAllBytes(path);
+        Assert.Throws<InvalidDataException>(() => new SqliteStore(path));
+        Assert.Equal(original, File.ReadAllBytes(path));
+        Assert.False(File.Exists(DatabaseSecurity.KeyFile(path)));
+    }
+
+    [Fact]
     public void InterruptedMigrationBeforePromotionResumesUsingExistingProtectedKey()
     {
         var path = PathFor();
