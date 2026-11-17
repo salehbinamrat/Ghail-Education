@@ -1,7 +1,7 @@
 namespace SchoolObservatory.Core;
 
 /// <summary>Only these supported domain records can be imported. All other data stays read-only.</summary>
-public enum ImportEntity { Schools, Students, Staff }
+public enum ImportEntity { Schools, Students, Staff, Sections }
 
 public enum ImportRowStatus { New, Update, Unchanged, Duplicate, Conflict, Invalid }
 
@@ -58,6 +58,12 @@ public static class ImportColumnMapping
                 ["guardian_name"] = ["guardian_name", "ولي الأمر", "اسم ولي الأمر"],
                 ["guardian_phone"] = ["guardian_phone", "هاتف ولي الأمر", "رقم هاتف ولي الأمر"]
             },
+            [ImportEntity.Sections] = new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["school_code"] = ["school_code", "رمز المدرسة"],
+                ["grade"] = ["grade", "الصف", "الصف الدراسي"],
+                ["section"] = ["section", "الشعبة", "الفصل"]
+            },
             [ImportEntity.Staff] = new(StringComparer.OrdinalIgnoreCase)
             {
                 ["school_code"] = ["school_code", "رمز المدرسة"],
@@ -91,7 +97,7 @@ public static class ImportColumnMapping
                 }
         }
         if (!mapping.ContainsKey(entity switch
-            { ImportEntity.Schools => "code", ImportEntity.Students => "student_code", _ => "employee_code" }))
+            { ImportEntity.Schools => "code", ImportEntity.Students => "student_code", ImportEntity.Sections => "grade", _ => "employee_code" }))
             throw new ArgumentException("الملف لا يحتوي عنوان المعرف الأساسي المطلوب (رمز المدرسة/الطالب/الموظف).");
         return mapping;
     }
@@ -107,7 +113,7 @@ public static class ImportColumnMapping
                 throw new ArgumentException($"خريطة الأعمدة غير صالحة عند الحقل {key}.");
         }
         if (!mapping.ContainsKey(entity == ImportEntity.Schools ? "code" :
-            entity == ImportEntity.Students ? "student_code" : "employee_code"))
+            entity == ImportEntity.Students ? "student_code" : entity == ImportEntity.Sections ? "grade" : "employee_code"))
             throw new ArgumentException("ربط عمود المعرف الأساسي مطلوب قبل الاستيراد.");
     }
 }
