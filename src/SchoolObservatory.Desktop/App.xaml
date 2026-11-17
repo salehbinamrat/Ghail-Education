@@ -16,7 +16,7 @@
     </Style>
     <Style TargetType="TextBox">
       <Setter Property="FontFamily" Value="Arial"/>
-      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="FontSize" Value="15"/>
       <Setter Property="Margin" Value="4"/>
       <Setter Property="Padding" Value="8"/>
       <Setter Property="MinHeight" Value="36"/>
@@ -50,7 +50,7 @@
       <Setter Property="Margin" Value="4"/>
       <Setter Property="Padding" Value="6"/>
       <Setter Property="MinHeight" Value="34"/>
-      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="FontSize" Value="15"/>
       <Setter Property="BorderBrush" Value="#9ACBD9"/>
       <Setter Property="Background" Value="White"/>
       <Setter Property="Foreground" Value="#133A56"/>
@@ -68,7 +68,7 @@
       <Setter Property="Foreground" Value="White"/>
       <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="FontFamily" Value="Arial"/>
-      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="FontSize" Value="15"/>
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="BorderBrush" Value="#086AA3"/>
       <Setter Property="BorderThickness" Value="1"/>
@@ -103,7 +103,7 @@
     </Style>
     <Style TargetType="TabItem">
       <Setter Property="FontFamily" Value="Arial"/>
-      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="FontSize" Value="15"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
       <Setter Property="Foreground" Value="#145071"/>
       <Setter Property="Background" Value="#E8F5FA"/>
@@ -136,7 +136,7 @@
       <Setter Property="Background" Value="#DFF4F9"/>
       <Setter Property="Foreground" Value="#074568"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
-      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="FontSize" Value="14"/>
       <Setter Property="Padding" Value="10,8"/>
       <Setter Property="MinHeight" Value="42"/>
       <Setter Property="BorderBrush" Value="#B6DEE8"/>
@@ -166,9 +166,9 @@
     <Style TargetType="DataGrid">
       <Setter Property="FontFamily" Value="Arial"/>
       <Setter Property="FlowDirection" Value="RightToLeft"/>
-      <Setter Property="RowHeight" Value="42"/>
+      <Setter Property="RowHeight" Value="46"/>
       <Setter Property="ColumnHeaderHeight" Value="44"/>
-      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="FontSize" Value="14"/>
       <Setter Property="Margin" Value="4,12"/>
       <Setter Property="Background" Value="White"/>
       <Setter Property="Foreground" Value="#133A56"/>

@@ -33,7 +33,7 @@ public static class GradeNames
         if (stage == "روضة" && grade is >= 1 and <= 3)
             return Kindergarten[grade - 1];
         if (grade is >= 1 and <= 9)
-            return Primary[grade - 1] + " أساسي";
+            return Primary[grade - 1];
         if (grade is >= 10 and <= 12)
             return Secondary[grade - 10];
         return grade.ToString(CultureInfo.InvariantCulture);
@@ -55,7 +55,8 @@ public static class GradeNames
             foreach (var stage in new[] { "أساسي", "ثانوي", "روضة" })
             {
                 if (!IsAllowed(stage, n)) continue;
-                if (value == Normalize(ForStage(stage, n)))
+                if (value == Normalize(ForStage(stage, n)) ||
+                    (stage == "أساسي" && value == Normalize(ForStage(stage, n) + " أساسي")))
                 {
                     grade = n;
                     return true;
@@ -68,7 +69,8 @@ public static class GradeNames
         for (var n = 1; n <= simple.Length; n++)
         {
             if (value == Normalize(simple[n - 1]) ||
-                value == Normalize("الصف " + simple[n - 1]))
+                value == Normalize("الصف " + simple[n - 1]) ||
+                value == Normalize("الصف " + simple[n - 1] + " أساسي"))
             {
                 grade = n;
                 return true;

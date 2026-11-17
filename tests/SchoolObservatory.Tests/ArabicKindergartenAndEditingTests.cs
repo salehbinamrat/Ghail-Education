@@ -19,8 +19,8 @@ public sealed class ArabicKindergartenAndEditingTests
     }
 
     [Theory]
-    [InlineData("أساسي", 1, "أولى أساسي")]
-    [InlineData("أساسي", 9, "تاسعة أساسي")]
+    [InlineData("أساسي", 1, "أولى")]
+    [InlineData("أساسي", 9, "تاسعة")]
     [InlineData("ثانوي", 10, "أولى ثانوي")]
     [InlineData("ثانوي", 11, "ثانية ثانوي")]
     [InlineData("ثانوي", 12, "ثالثة ثانوي")]
@@ -79,7 +79,7 @@ public sealed class ArabicKindergartenAndEditingTests
         Assert.Equal(student.Id, updated.Id);
         Assert.Equal("ب", updated.Section);
         Assert.Single(store.GetStudentResults(owner, school.Id, student.Id));
-        Assert.Equal("ثانية أساسي — الشعبة ب",
+        Assert.Equal("ثانية — الشعبة ب",
             Assert.Single(store.GetSchoolGrades(owner, school.Id)).DisplayName);
     }
 

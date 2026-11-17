@@ -175,6 +175,27 @@ public sealed partial class SqliteStore
         return code;
     }
 
+    /// <summary>Allocate the next available local numeric student code inside the save transaction.</summary>
+    private static string NextStudentCode(SqliteConnection con, SqliteTransaction tx, string schoolId)
+    {
+        using var cmd = Cmd(con, tx, """
+            SELECT COALESCE(MAX(CAST(student_code AS INTEGER)),0)+1
+            FROM school_students
+            WHERE school_id=$s AND length(student_code) BETWEEN 1 AND 9
+              AND student_code NOT GLOB '*[^0-9]*'
+            """, ("$s", schoolId));
+        var number = Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+        if (number is < 1 or > 999999999)
+            throw new InvalidOperationException("استنفدت الأرقام التلقائية لهذه المدرسة.");
+        var code = number.ToString(CultureInfo.InvariantCulture);
+        using var existing = Cmd(con, tx, """
+            SELECT EXISTS(SELECT 1 FROM school_students WHERE school_id=$s AND student_code=$code)
+            """, ("$s", schoolId), ("$code", code));
+        if (Convert.ToInt32(existing.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
+            throw new InvalidOperationException("تعارض رمز الطالب التلقائي. راجع الرموز المدرسية.");
+        return code;
+    }
+
     private static string StudentGender(StudentSchoolInfo school, string entered)
     {
         entered = entered.Trim();
@@ -370,7 +391,8 @@ public sealed partial class SqliteStore
         RequireFreshActor(actor);
         if (!AccessPolicy.CanManageStudents(actor, student.SchoolId))
             throw new UnauthorizedAccessException("لا تملك صلاحية تعديل طلاب هذه المدرسة.");
-        var code = StudentCode(student.StudentCode);
+        var autoCode = string.IsNullOrWhiteSpace(student.StudentCode) && string.IsNullOrWhiteSpace(student.Id);
+        var code = autoCode ? "" : StudentCode(student.StudentCode);
         var section = SectionName(student.Section);
         ValidateStudent(student.FullName, student.GuardianName, student.GuardianPhone, student.Notes);
         var year = AcademicYear;
@@ -380,6 +402,7 @@ public sealed partial class SqliteStore
         GradeAllowed(school, student.Grade);
         var gender = StudentGender(school, student.Gender);
         var gradeId = GradeId(con, tx, student.SchoolId, year, student.Grade, section);
+        if (autoCode) code = NextStudentCode(con, tx, student.SchoolId);
         var id = string.IsNullOrWhiteSpace(student.Id) ? Id() : student.Id;
         using (var duplicate = Cmd(con, tx, """
             SELECT EXISTS(SELECT 1 FROM school_students
