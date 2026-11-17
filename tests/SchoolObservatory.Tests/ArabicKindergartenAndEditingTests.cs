@@ -116,4 +116,29 @@ public sealed class ArabicKindergartenAndEditingTests
         Assert.Contains("تعديل الصف والشعبة", File.ReadAllText(Path.Combine(dir.FullName,
             "src", "SchoolObservatory.Desktop", "MainWindow.Students.cs")), StringComparison.Ordinal);
     }
+    [Fact]
+    public void CorrectionOfStudentAssessmentKeepsHistoryAndIsSchoolScoped()
+    {
+        var (store, owner, _) = Open();
+        store.AddSchool(owner, "S1", "مدرسة الأولى", "العليب", "حكومية", "أساسي", "ذكور");
+        store.AddSchool(owner, "S2", "مدرسة الثانية", "العليب", "حكومية", "أساسي", "ذكور");
+        var one = store.GetSchools(owner).Single(s => s.Code == "S1");
+        var two = store.GetSchools(owner).Single(s => s.Code == "S2");
+        store.AddSchoolGrade(owner, one.Id, 2, "أ");
+        store.SaveStudent(owner, new SchoolStudent("", one.Id, "007", "أحمد", 2, "أ", "",
+            "ولي الأمر", "777000000", "", true, "2026/2027"));
+        var student = Assert.Single(store.GetStudents(owner, one.Id));
+        store.AddStudentAssessment(owner, one.Id, student.Id, "المشاركة", "جيد", "ملاحظة قبل التصحيح");
+        var existing = Assert.Single(store.GetStudentAssessments(owner, one.Id, student.Id));
+
+        Assert.Throws<UnauthorizedAccessException>(() => store.UpdateStudentAssessment(
+            owner, two.Id, student.Id, existing.Id, "المشاركة", "ممتاز", "غير مصرح"));
+        store.UpdateStudentAssessment(owner, one.Id, student.Id, existing.Id,
+            "المشاركة", "ممتاز", "تم تصحيح التقييم");
+        var updated = Assert.Single(store.GetStudentAssessments(owner, one.Id, student.Id));
+        Assert.Equal(existing.Id, updated.Id);
+        Assert.Equal("ممتاز", updated.Rating);
+        Assert.Equal("تم تصحيح التقييم", updated.Notes);
+    }
+
 }
