@@ -148,6 +148,85 @@ public sealed class AcademicHistoryPhase2Tests
         Assert.Single(db.GetStudents(owner, a.Id));
     }
 
+
+    [Fact]
+    public void EditedStudentSectionAndLegacyImportMustSynchronizeCurrentPlacement()
+    {
+        var (db, owner, a, _, _) = Prepare();
+        var studentId = AddStudent(db, owner, a);
+        db.AddSchoolGrade(owner, a.Id, 3, "ب");
+        var old = db.GetStudent(owner, a.Id, studentId);
+        db.SaveStudent(owner, old with { Section = "ب" });
+        Assert.Equal("ب", db.GetStudent(owner, a.Id, studentId).Section);
+        Assert.Equal("ب", db.GetStudentEnrollmentHistory(owner, studentId).Single().Section);
+    }
+
+    [Fact]
+    public void TransferredStudentCanRecordNewSchoolResultsWithoutOverwritingEarlierResults()
+    {
+        var (db, owner, a, b, _) = Prepare();
+        var id = AddStudent(db, owner, a);
+        db.SaveStudentResult(owner, a.Id, id, "الفصل الأول", "العربية", 80, 100, "");
+        db.RecordStudentAttendance(owner, a.Id, id, new DateOnly(2026, 11, 17), "حاضر", "");
+        db.OpenAcademicYear(owner, "2027/2028");
+        db.ActivateAcademicYear(owner, "2027/2028");
+        db.AddSchoolGrade(owner, b.Id, 4, "أ");
+        db.TransferStudentSchool(owner, id, b.Id, 4, "أ");
+        db.SaveStudentResult(owner, b.Id, id, "الفصل الأول", "العربية", 94, 100, "");
+        db.RecordStudentAttendance(owner, b.Id, id, new DateOnly(2027, 11, 17), "غائب", "بعذر");
+        Assert.Equal(80, Assert.Single(db.GetStudentResults(owner, a.Id, id)).Score);
+        Assert.Equal(94, Assert.Single(db.GetStudentResults(owner, b.Id, id)).Score);
+        Assert.Single(db.GetStudentAttendance(owner, a.Id, id));
+        Assert.Single(db.GetStudentAttendance(owner, b.Id, id));
+    }
+
+    [Fact]
+    public void StudentGraduationAndWithdrawalArchivePlacementsNotPersonIdentity()
+    {
+        var (db, owner, a, _, _) = Prepare();
+        var id = AddStudent(db, owner, a);
+        db.WithdrawStudent(owner, id);
+        Assert.Empty(db.GetStudents(owner, a.Id));
+        Assert.Equal("منسحب", Assert.Single(db.GetStudentEnrollmentHistory(owner, id)).Status);
+        Assert.Throws<InvalidOperationException>(() => db.GraduateStudent(owner, id));
+    }
+
+    [Fact]
+    public void SchoolInfrastructureAndFacilitiesAreScopedAndPreservedAfterReopen()
+    {
+        var (db, owner, a, b, path) = Prepare();
+        var profile = new SchoolInfrastructureRecord(a.Id, "غيل بن يمين", "العليب",
+            "مبنى مستقل", "حكومي", 12, "صباحي ومسائي", true, true, false, "بحاجة إلى مختبر");
+        db.SaveSchoolInfrastructure(owner, profile);
+        db.SaveSchoolFacility(owner, new SchoolFacility(a.Id, "المكتبة", 1, "جيدة"));
+        var reopened = new SqliteStore(path);
+        reopened.Initialize();
+        Assert.Equal(profile, reopened.GetSchoolInfrastructure(owner, a.Id));
+        Assert.Single(reopened.GetSchoolFacilities(owner, a.Id));
+        Assert.Empty(reopened.GetSchoolFacilities(owner, b.Id));
+        db.CreateUser(owner, "scoped-a", "School-user-safe-654321", Roles.Entry, a.Id);
+        var schoolUser = Assert.IsType<UserAccount>(db.Authenticate("scoped-a", "School-user-safe-654321"));
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            db.GetSchoolInfrastructure(schoolUser, b.Id));
+    }
+
+    [Fact]
+    public void ClosedYearTriggersProtectOfficialResultsEvenOutsideTheBusinessMethods()
+    {
+        var (db, owner, a, _, path) = Prepare();
+        var id = AddStudent(db, owner, a);
+        db.SaveStudentResult(owner, a.Id, id, "الفصل الأول", "العربية", 70, 100, "");
+        db.OpenAcademicYear(owner, "2027/2028");
+        db.ActivateAcademicYear(owner, "2027/2028");
+        db.CloseAcademicYear(owner, "2026/2027");
+        using var con = DatabaseSecurity.OpenForRegressionTest(path);
+        using var cmd = con.CreateCommand();
+        cmd.CommandText = "UPDATE student_results SET score=99 WHERE student_id=$id";
+        cmd.Parameters.AddWithValue("$id", id);
+        Assert.Throws<Microsoft.Data.Sqlite.SqliteException>(() => cmd.ExecuteNonQuery());
+        Assert.Equal(70, Assert.Single(db.GetStudentResults(owner, a.Id, id)).Score);
+    }
+
     [Fact]
     public void MigrationKeepsExistingStudentStaffAndAuditWithoutChangingIds()
     {
