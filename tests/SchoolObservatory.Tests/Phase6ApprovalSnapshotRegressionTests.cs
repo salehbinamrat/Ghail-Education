@@ -55,4 +55,30 @@ public sealed class Phase6ApprovalSnapshotRegressionTests
         Assert.False(draft.IsApprovedSource);
         Assert.Single(draft.Rows);
     }
+
+    [Fact]
+    public void SchoolsSharingOneNameMustNotHaveTheirStaffCountsMerged()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "p6-same-name-" + Guid.NewGuid().ToString("N") + ".db");
+        var db = new SqliteStore(path);
+        db.Initialize();
+        var secret = "Secure-" + Guid.NewGuid().ToString("N") + "Aa1!";
+        db.InitializeAdministrator("غيل بن يمين", "2026/2027", "staffowner", secret);
+        var owner = db.Authenticate("staffowner", secret)!;
+        db.AddSchool(owner, "P6-NAME-A", "مدرسة الأمل", "العليب", "حكومية", "أساسي");
+        db.AddSchool(owner, "P6-NAME-B", "مدرسة الأمل", "الريدة", "حكومية", "أساسي");
+        var schools = db.GetSchools(owner);
+        foreach (var school in schools)
+            db.SaveSchoolStaff(owner, new SchoolStaff("", school.Id, "EMP-" + school.Code,
+                "معلم المدرسة " + school.Code, "معلم", "معلم", "رياضيات",
+                "بكالوريوس", "ذكور", true));
+
+        var report = new ReportQueryService(db).Generate(owner,
+            new ReportRequest(ReportKind.StaffDistribution, new ReportFilter()));
+        Assert.Equal(2, report.Totals["staff"]);
+        Assert.Equal(2, report.RecordCount);
+        Assert.Contains("رمز المدرسة", report.Columns);
+        Assert.Contains(report.Rows, r => r.Cells.Contains("P6-NAME-A"));
+        Assert.Contains(report.Rows, r => r.Cells.Contains("P6-NAME-B"));
+    }
 }
