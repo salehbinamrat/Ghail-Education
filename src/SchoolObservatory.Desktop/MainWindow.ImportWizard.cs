@@ -64,6 +64,33 @@ public partial class MainWindow
             HorizontalAlignment = HorizontalAlignment.Left
         };
 
+        // One wizard-wide operation gate, not merely a disabled individual button:
+        // a second command cannot race the first across different wizard stages.
+        bool importBusy = false;
+        bool StartImportOperation(Button button)
+        {
+            if (importBusy) return false;
+            importBusy = true;
+            button.IsEnabled = false;
+            category.IsEnabled = false;
+            fallbackSchool.IsEnabled = false;
+            return true;
+        }
+        void EndImportOperation(Button button)
+        {
+            button.IsEnabled = true;
+            category.IsEnabled = true;
+            fallbackSchool.IsEnabled = true;
+            importBusy = false;
+        }
+        fallbackSchool.SelectionChanged += (_,_) =>
+        {
+            if (importBusy || preview is null) return;
+            preview = null;
+            reviewArea.Children.Clear();
+            stage.Text = "الخطوة 2 — أعد المعاينة بعد تغيير المدرسة";
+        };
+
         void ClearAfterFile()
         {
             table = null;
@@ -113,6 +140,13 @@ public partial class MainWindow
                     HorizontalAlignment = HorizontalAlignment.Left
                 };
                 selectors.Add(field,picker);
+                picker.SelectionChanged += (_,_) =>
+                {
+                    if (importBusy || preview is null) return;
+                    preview = null;
+                    reviewArea.Children.Clear();
+                    stage.Text = "الخطوة 2 — أعد المعاينة بعد تغيير ربط الأعمدة";
+                };
                 mappingPanel.Children.Add(FormField(field,picker));
             }
             columnArea.Children.Add(mappingPanel);
@@ -126,7 +160,7 @@ public partial class MainWindow
             columnArea.Children.Add(Btn("الخطوة 3 — تدقيق جميع الصفوف ومعاينة الفروق", async (sender, _) =>
             {
                 var button = (Button)sender;
-                button.IsEnabled=false;
+                if(!StartImportOperation(button)) return;
                 try
                 {
                     var mapping = selectors.Where(x=>x.Value.SelectedIndex>0)
@@ -145,7 +179,7 @@ public partial class MainWindow
                     MessageBox.Show(ex.Message,"تدقيق ملف الاستيراد",
                         MessageBoxButton.OK,MessageBoxImage.Warning);
                 }
-                finally { button.IsEnabled=true; }
+                finally { EndImportOperation(button); }
             },tone:"primary"));
         }
 
@@ -201,7 +235,7 @@ public partial class MainWindow
                     "تأكيد نهائي قبل الكتابة",MessageBoxButton.YesNo,MessageBoxImage.Warning);
                 if(confirm!=MessageBoxResult.Yes)return;
                 var button=(Button)sender;
-                button.IsEnabled=false;
+                if(!StartImportOperation(button)) return;
                 try
                 {
                     var batch=await Task.Run(()=>_store.ApplyImport(_actor,plan));
@@ -223,7 +257,7 @@ public partial class MainWindow
                         "\nلم تعتمد الدفعة. أعد الفحص والمعاينة قبل المحاولة.",
                         "توقف الاستيراد بأمان",MessageBoxButton.OK,MessageBoxImage.Warning);
                 }
-                finally {button.IsEnabled=true;}
+                finally {EndImportOperation(button);}
             },tone:"success"));
         }
 
@@ -247,7 +281,7 @@ public partial class MainWindow
                 };
                 if(dialog.ShowDialog()!=true)return;
                 var button=(Button)sender;
-                button.IsEnabled=false;
+                if(!StartImportOperation(button)) return;
                 try
                 {
                     var parsed=await Task.Run(()=>ImportTableReader.Read(dialog.FileName));
@@ -260,7 +294,7 @@ public partial class MainWindow
                     MessageBox.Show(ex.Message,"خطأ قراءة ملف الاستيراد",
                         MessageBoxButton.OK,MessageBoxImage.Warning);
                 }
-                finally {button.IsEnabled=true;}
+                finally {EndImportOperation(button);}
             },tone:"primary"));
         }
         AddFileButton();
