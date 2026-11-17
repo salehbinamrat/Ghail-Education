@@ -575,4 +575,43 @@ public sealed class AcademicHistoryPhase2Tests
         Assert.True(db.GetAcademicYears(owner).Single(y => y.Year == "2026/2027").IsClosed);
         Assert.Equal("2027/2028", db.AcademicYear);
     }
+
+    [Fact]
+    public void ExistingEncryptedVersionTwoGetsVerifiedSnapshotAndNewClosedYearGuards()
+    {
+        var (db, owner, school, _, path) = Prepare();
+        var studentId = AddStudent(db, owner, school);
+        db.SaveStudentResult(owner, school.Id, studentId,
+            "الفصل الأول", "العربية", 92, 100, "");
+        using (var current = DatabaseSecurity.OpenForRegressionTest(path))
+        using (var downgrade = current.CreateCommand())
+        {
+            // Simulate the exact prior v2 schema, without replacing student data
+            // or removing Phase 1's encryption key.
+            downgrade.CommandText = """
+                DROP TRIGGER IF EXISTS p2_closed_target_results;
+                PRAGMA user_version=2;
+                """;
+            downgrade.ExecuteNonQuery();
+        }
+        var upgraded = new SqliteStore(path);
+        upgraded.Initialize();
+        using (var check = DatabaseSecurity.OpenForRegressionTest(path))
+        {
+            using var version = check.CreateCommand();
+            version.CommandText = "PRAGMA user_version;";
+            Assert.Equal(3L, Convert.ToInt64(version.ExecuteScalar()));
+            using var guards = check.CreateCommand();
+            guards.CommandText = """
+                SELECT COUNT(*) FROM sqlite_master
+                WHERE type='trigger' AND name='p2_closed_target_results'
+                """;
+            Assert.Equal(1L, Convert.ToInt64(guards.ExecuteScalar()));
+        }
+        Assert.Equal(studentId, Assert.Single(upgraded.GetStudents(owner, school.Id)).Id);
+        Assert.Equal(92, Assert.Single(upgraded.GetStudentResults(owner, school.Id, studentId)).Score);
+        Assert.True(File.Exists(DatabaseSecurity.KeyFile(path)));
+        Assert.NotEmpty(Directory.GetFiles(
+            Path.Combine(Path.GetDirectoryName(path)!, "recovery"), "before-schema-*.db"));
+    }
 }
