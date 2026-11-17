@@ -310,17 +310,31 @@ public partial class MainWindow
         }), tone: "success"));
         root.Children.Add(Box(newGradePanel));
 
+        bool suppressGradeSelection = false;
+        bool suppressSearch = false;
+        void ClearSearch()
+        {
+            suppressSearch = true;
+            try { search.Clear(); }
+            finally { suppressSearch = false; }
+        }
+
         void RefillGrades(string? selectId = null)
         {
             if (schoolPicker.SelectedItem is not School school) return;
             var available = _store.GetSchoolGrades(_actor, school.Id);
-            gradePicker.ItemsSource = available;
-            gradePicker.SelectedItem = (selectId is not null
-                ? available.FirstOrDefault(x => x.Id == selectId) : null)
-                ?? (preferredGrade is not null
-                    ? available.FirstOrDefault(x => x.Grade == preferredGrade && x.Section == preferredSection)
-                    : null)
-                ?? available.FirstOrDefault();
+            suppressGradeSelection = true;
+            try
+            {
+                gradePicker.ItemsSource = available;
+                gradePicker.SelectedItem = (selectId is not null
+                    ? available.FirstOrDefault(x => x.Id == selectId) : null)
+                    ?? (preferredGrade is not null
+                        ? available.FirstOrDefault(x => x.Grade == preferredGrade && x.Section == preferredSection)
+                        : null)
+                    ?? available.FirstOrDefault();
+            }
+            finally { suppressGradeSelection = false; }
             newGradePanel.IsEnabled = AccessPolicy.CanManageStudents(_actor, school.Id);
             var options = school.Stage switch
             {
@@ -334,11 +348,15 @@ public partial class MainWindow
             ResetEditor();
             RefreshRoster();
         }
-        search.TextChanged += (_, _) => Safe(() => RefreshRoster(false));
-        schoolPicker.SelectionChanged += (_, _) => Safe(() => { search.Clear(); RefillGrades(); });
+        search.TextChanged += (_, _) =>
+        {
+            if (!suppressSearch) Safe(() => RefreshRoster(false));
+        };
+        schoolPicker.SelectionChanged += (_, _) => Safe(() => { ClearSearch(); RefillGrades(); });
         gradePicker.SelectionChanged += (_, _) => Safe(() =>
         {
-            search.Clear(); ResetEditor(); RefreshRoster();
+            if (suppressGradeSelection) return;
+            ClearSearch(); ResetEditor(); RefreshRoster();
         });
         void OpenSelectedStudent()
         {
@@ -358,8 +376,6 @@ public partial class MainWindow
         };
 
         var actions = new WrapPanel();
-        actions.Children.Add(Btn("فتح ملف الطالب المحدد", (_, _) => OpenSelectedStudent(),
-            tone: "secondary"));
         actions.Children.Add(Btn("مسح الحقول / طالب جديد", (_, _) => ResetEditor(), tone: "secondary"));
         actions.Children.Add(Btn("حفظ بيانات الطالب", (_, _) => Safe(() =>
         {
@@ -437,7 +453,7 @@ public partial class MainWindow
         schoolPicker.SelectedItem = schools.FirstOrDefault(x => x.Id == preferredSchool) ?? schools[0];
     }
 
-    private void ShowStudentProfile(School school, string studentId)
+    private void ShowStudentProfile(School school, string studentId, int selectedTab = 0)
     {
         var student = _store.GetStudent(_actor, school.Id, studentId);
         var root = Stack();
@@ -446,6 +462,12 @@ public partial class MainWindow
         root.Children.Add(Label($"ملف الطالب: {student.FullName}", 21, true));
         root.Children.Add(Label($"الرقم المدرسي: {student.StudentCode}  |  الصف {student.Grade} / {student.Section}" +
             $"  |  العام الدراسي: {student.AcademicYear}", 14));
+        if (!student.IsActive)
+        {
+            var warning = Label("ملف غير نشط — السجلات الدراسية السابقة متاحة للقراءة، والإدخال الجديد معطل.", 13, true);
+            warning.Foreground = new SolidColorBrush(Color.FromRgb(163, 67, 26));
+            root.Children.Add(Box(warning, new Thickness(12)));
+        }
         root.Children.Add(Box(Label($"ولي الأمر: {student.GuardianName}  |  الهاتف: {student.GuardianPhone}" +
             (school.Gender == "مختلطة" ? $"  |  الجنس: {student.Gender}" : ""), 14)));
 
@@ -481,7 +503,14 @@ public partial class MainWindow
         personal.Children.Add(FormField("ملاحظات", notes));
         personal.Children.Add(active);
         var canEdit = AccessPolicy.CanManageStudents(_actor, school.Id);
-        personal.IsEnabled = canEdit;
+        name.IsReadOnly = !canEdit;
+        code.IsReadOnly = !canEdit;
+        guardian.IsReadOnly = !canEdit;
+        phone.IsReadOnly = !canEdit;
+        notes.IsReadOnly = !canEdit;
+        gradeChoice.IsEnabled = canEdit;
+        genderChoice.IsEnabled = canEdit;
+        active.IsEnabled = canEdit;
         personal.Children.Add(Btn("حفظ التعديلات على الملف", (_, _) => Safe(() =>
         {
             if (gradeChoice.SelectedItem is not SchoolGrade grade)
@@ -500,17 +529,22 @@ public partial class MainWindow
 
         var results = Stack();
         results.Children.Add(Label("النتائج الدراسية حسب المادة والفصل والسنة", 17, true));
-        results.Children.Add(Box(GridFor(_store.GetStudentResults(_actor, school.Id, student.Id),
+        var resultsGrid = GridFor(Array.Empty<StudentResult>(),
             ("السنة", "AcademicYear", false), ("الفصل", "Term", false),
             ("المادة", "Subject", false), ("الدرجة", "Score", false),
-            ("من", "Maximum", false), ("ملاحظات", "Notes", false))));
+            ("من", "Maximum", false), ("ملاحظات", "Notes", false));
+        results.Children.Add(Box(resultsGrid));
         var term = Choice(new[] { "الفصل الأول", "الفصل الثاني", "النهائي" }, 150);
         var subject = Field(width: 200);
         var score = Field(width: 90);
         var maximum = Field("100", 90);
         var resultNote = Field(width: 230);
-        results.Children.Add(LineOfFields(("الفصل الدراسي", term), ("المادة", subject),
-            ("الدرجة", score), ("الدرجة الكاملة", maximum), ("ملاحظات", resultNote)));
+        var canEvaluate = student.IsActive &&
+            AccessPolicy.CanManageStudentEvaluation(_actor, school.Id);
+        var resultEditor = LineOfFields(("الفصل الدراسي", term), ("المادة", subject),
+            ("الدرجة", score), ("الدرجة الكاملة", maximum), ("ملاحظات", resultNote));
+        resultEditor.IsEnabled = canEvaluate;
+        results.Children.Add(resultEditor);
         results.Children.Add(Btn("حفظ نتيجة المادة", (_, _) => Safe(() =>
         {
             if (!int.TryParse(score.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var achieved) ||
@@ -518,49 +552,83 @@ public partial class MainWindow
                 throw new ArgumentException("أدخل درجة المادة والدرجة الكاملة بأرقام إنجليزية.");
             _store.SaveStudentResult(_actor, school.Id, student.Id,
                 term.SelectedItem?.ToString() ?? "", subject.Text, achieved, full, resultNote.Text);
-            Info("تم حفظ نتيجة المادة."); ShowStudentProfile(school, studentId);
-        }), AccessPolicy.CanManageStudentEvaluation(_actor, school.Id), "success"));
+            Info("تم حفظ نتيجة المادة."); ShowStudentProfile(school, studentId, 1);
+        }), canEvaluate, "success"));
         tabs.Items.Add(new TabItem { Header = "النتائج", Content = Box(results) });
 
         var assessment = Stack();
         assessment.Children.Add(Label("التقييم التربوي والسلوك والمواظبة", 17, true));
-        assessment.Children.Add(Box(GridFor(_store.GetStudentAssessments(_actor, school.Id, student.Id),
+        var assessmentsGrid = GridFor(Array.Empty<StudentAssessment>(),
             ("الفئة", "Category", false), ("التقدير", "Rating", false),
-            ("الملاحظات", "Notes", false), ("التاريخ", "RecordedAt", false))));
+            ("الملاحظات", "Notes", false), ("التاريخ", "RecordedAt", false));
+        assessment.Children.Add(Box(assessmentsGrid));
         var category = Choice(new[] { "المشاركة", "السلوك", "المواظبة", "المهارات", "التقييم العام" }, 170);
         var rating = Choice(new[] { "ممتاز", "جيد جدا", "جيد", "مقبول", "يحتاج متابعة" }, 155);
         var assessmentNote = Field(width: 300);
-        assessment.Children.Add(LineOfFields(("المجال", category), ("التقدير", rating),
-            ("ملاحظات المعلم / الأخصائي", assessmentNote)));
+        var assessmentEditor = LineOfFields(("المجال", category), ("التقدير", rating),
+            ("ملاحظات المعلم / الأخصائي", assessmentNote));
+        assessmentEditor.IsEnabled = canEvaluate;
+        assessment.Children.Add(assessmentEditor);
         assessment.Children.Add(Btn("إضافة تقييم للطالب", (_, _) => Safe(() =>
         {
             _store.AddStudentAssessment(_actor, school.Id, student.Id,
                 category.SelectedItem?.ToString() ?? "", rating.SelectedItem?.ToString() ?? "",
                 assessmentNote.Text);
-            Info("تم حفظ تقييم الطالب."); ShowStudentProfile(school, studentId);
-        }), AccessPolicy.CanManageStudentEvaluation(_actor, school.Id), "success"));
+            Info("تم حفظ تقييم الطالب."); ShowStudentProfile(school, studentId, 2);
+        }), canEvaluate, "purple"));
         tabs.Items.Add(new TabItem { Header = "التقييمات", Content = Box(assessment) });
 
         var attendance = Stack();
         attendance.Children.Add(Label("الحضور والغياب والتأخر والأعذار", 17, true));
-        attendance.Children.Add(Box(GridFor(_store.GetStudentAttendance(_actor, school.Id, student.Id),
-            ("اليوم", "Date", false), ("الحالة", "Status", false), ("ملاحظات", "Notes", false))));
+        var attendanceGrid = GridFor(Array.Empty<StudentAttendance>(),
+            ("اليوم", "Date", false), ("الحالة", "Status", false), ("ملاحظات", "Notes", false));
+        attendance.Children.Add(Box(attendanceGrid));
         var date = new DatePicker { SelectedDate = DateTime.Today, Width = 160 };
         var state = Choice(new[] { "حاضر", "غائب", "متأخر", "بعذر" }, 145);
         var attendanceNote = Field(width: 270);
-        attendance.Children.Add(LineOfFields(("التاريخ", date), ("حالة الحضور", state),
-            ("ملاحظات", attendanceNote)));
+        var attendanceEditor = LineOfFields(("التاريخ", date), ("حالة الحضور", state),
+            ("ملاحظات", attendanceNote));
+        attendanceEditor.IsEnabled = canEvaluate;
+        attendance.Children.Add(attendanceEditor);
         attendance.Children.Add(Btn("حفظ الحضور", (_, _) => Safe(() =>
         {
             if (date.SelectedDate is not DateTime day)
                 throw new ArgumentException("حدد تاريخ الحضور.");
             _store.RecordStudentAttendance(_actor, school.Id, student.Id, DateOnly.FromDateTime(day),
                 state.SelectedItem?.ToString() ?? "", attendanceNote.Text);
-            Info("تم حفظ سجل الحضور."); ShowStudentProfile(school, studentId);
-        }), AccessPolicy.CanManageStudentEvaluation(_actor, school.Id), "success"));
+            Info("تم حفظ سجل الحضور."); ShowStudentProfile(school, studentId, 3);
+        }), canEvaluate, "warning"));
         tabs.Items.Add(new TabItem { Header = "الحضور", Content = Box(attendance) });
 
+        // Retrieve history on demand: opening a student no longer requires
+        // three extra SQLite queries for tabs that may never be visited.
+        bool resultsLoaded = false, assessmentsLoaded = false, attendanceLoaded = false;
+        void LoadSelectedTab()
+        {
+            switch (tabs.SelectedIndex)
+            {
+                case 1 when !resultsLoaded:
+                    resultsGrid.ItemsSource = _store.GetStudentResults(_actor, school.Id, student.Id);
+                    resultsLoaded = true;
+                    break;
+                case 2 when !assessmentsLoaded:
+                    assessmentsGrid.ItemsSource = _store.GetStudentAssessments(_actor, school.Id, student.Id);
+                    assessmentsLoaded = true;
+                    break;
+                case 3 when !attendanceLoaded:
+                    attendanceGrid.ItemsSource = _store.GetStudentAttendance(_actor, school.Id, student.Id);
+                    attendanceLoaded = true;
+                    break;
+            }
+        }
+        tabs.SelectionChanged += (_, e) =>
+        {
+            // DataGrid selections also raise this bubbling event.
+            if (ReferenceEquals(e.OriginalSource, tabs)) Safe(LoadSelectedTab);
+        };
         root.Children.Add(tabs);
         Display("ملف الطالب", root);
+        tabs.SelectedIndex = Math.Clamp(selectedTab, 0, 3);
+        Safe(LoadSelectedTab);
     }
 }
