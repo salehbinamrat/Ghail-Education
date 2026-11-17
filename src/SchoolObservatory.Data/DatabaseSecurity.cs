@@ -29,7 +29,7 @@ public static class DatabaseSecurity
 
     private static void SecureDirectory(string directory)
     {
-        WindowsOnly();
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         Directory.CreateDirectory(directory);
         var sid = WindowsIdentity.GetCurrent().User
             ?? throw new UnauthorizedAccessException("Windows account SID is unavailable.");
@@ -49,7 +49,7 @@ public static class DatabaseSecurity
 
     private static void SecureFile(string file)
     {
-        WindowsOnly();
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         if (!File.Exists(file)) return;
         var sid = WindowsIdentity.GetCurrent().User
             ?? throw new UnauthorizedAccessException("Windows account SID is unavailable.");
@@ -79,6 +79,7 @@ public static class DatabaseSecurity
 
     private static byte[] ReadKey(string keyFile)
     {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         var blob = File.ReadAllBytes(keyFile);
         if (blob.Length is < 40 or > 4096) throw new CryptographicException("Invalid DPAPI database key file.");
         var raw = ProtectedData.Unprotect(blob, Entropy, DataProtectionScope.CurrentUser);
@@ -88,6 +89,7 @@ public static class DatabaseSecurity
 
     private static void WriteKey(string keyFile, byte[] key)
     {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         var wrapped = ProtectedData.Protect(key, Entropy, DataProtectionScope.CurrentUser);
         using (var stream = new FileStream(keyFile, FileMode.CreateNew, FileAccess.Write, FileShare.None))
         {
@@ -210,7 +212,7 @@ public static class DatabaseSecurity
                     string encoded = value switch
                     {
                         DBNull => "N",
-                        byte[] bytes => "B" + Convert.ToBase64String(bytes),
+                        byte[] rawBlob => "B" + Convert.ToBase64String(rawBlob),
                         string s => "S" + s,
                         long n => "I" + n.ToString(CultureInfo.InvariantCulture),
                         int n => "I" + n.ToString(CultureInfo.InvariantCulture),
