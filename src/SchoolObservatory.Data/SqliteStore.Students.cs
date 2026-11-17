@@ -348,14 +348,15 @@ public sealed partial class SqliteStore
         var year = AcademicYear;
         using var con = Open();
         using var cmd = Cmd(con, null, """
-            SELECT st.id,st.school_id,st.student_code,st.full_name,g.grade,g.section,
-                st.gender,st.guardian_name,st.guardian_phone,st.notes,st.is_active,en.academic_year
+            SELECT st.id,h.school_id,st.student_code,st.full_name,g.grade,g.section,
+                st.gender,st.guardian_name,st.guardian_phone,st.notes,st.is_active,h.academic_year
             FROM school_students st
-            JOIN student_enrollments en ON en.student_id=st.id AND en.school_id=st.school_id
-            JOIN school_grades g ON g.id=en.grade_id AND g.school_id=en.school_id
-                AND g.academic_year=en.academic_year
-            WHERE st.school_id=$s AND en.academic_year=$y
-                AND ($class IS NULL OR en.grade_id=$class)
+            JOIN student_history h ON h.student_id=st.id
+            JOIN school_grades g ON g.id=h.grade_id AND g.school_id=h.school_id
+                AND g.academic_year=h.academic_year
+            WHERE h.school_id=$s AND h.academic_year=$y
+                AND h.end_utc IS NULL AND h.status='مسجل'
+                AND ($class IS NULL OR h.grade_id=$class)
             ORDER BY g.grade,g.section,st.full_name,st.student_code
             """, ("$s", schoolId), ("$y", year), ("$class", gradeId));
         using var r = cmd.ExecuteReader();
@@ -372,13 +373,14 @@ public sealed partial class SqliteStore
         var year = AcademicYear;
         using var con = Open();
         using var cmd = Cmd(con, null, """
-            SELECT st.id,st.school_id,st.student_code,st.full_name,g.grade,g.section,
-                st.gender,st.guardian_name,st.guardian_phone,st.notes,st.is_active,en.academic_year
+            SELECT st.id,h.school_id,st.student_code,st.full_name,g.grade,g.section,
+                st.gender,st.guardian_name,st.guardian_phone,st.notes,st.is_active,h.academic_year
             FROM school_students st
-            JOIN student_enrollments en ON en.student_id=st.id AND en.school_id=st.school_id
-            JOIN school_grades g ON g.id=en.grade_id AND g.school_id=en.school_id
-                AND g.academic_year=en.academic_year
-            WHERE st.id=$id AND st.school_id=$s AND en.academic_year=$year
+            JOIN student_history h ON h.student_id=st.id
+            JOIN school_grades g ON g.id=h.grade_id AND g.school_id=h.school_id
+                AND g.academic_year=h.academic_year
+            WHERE st.id=$id AND h.school_id=$s AND h.academic_year=$year
+                AND h.end_utc IS NULL AND h.status='مسجل'
             """, ("$id", studentId), ("$s", schoolId), ("$year", year));
         using var reader = cmd.ExecuteReader();
         if (!reader.Read())
@@ -622,13 +624,14 @@ public sealed partial class SqliteStore
         RequireEnrolledYear(con, tx, schoolId, studentId, year);
         using var cmd = Cmd(con, tx, """
             INSERT INTO student_attendance(id,student_id,school_id,attendance_date,
-                status,notes,updated_utc)
-            VALUES($id,$student,$s,$day,$status,$notes,$at)
+                status,notes,updated_utc,academic_year)
+            VALUES($id,$student,$s,$day,$status,$notes,$at,$year)
             ON CONFLICT(student_id,attendance_date) DO UPDATE
-            SET status=excluded.status,notes=excluded.notes,updated_utc=excluded.updated_utc
+            SET status=excluded.status,notes=excluded.notes,
+                updated_utc=excluded.updated_utc,academic_year=excluded.academic_year
             """, ("$id", Id()), ("$student", studentId), ("$s", schoolId),
             ("$day", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
-            ("$status", status), ("$notes", notes.Trim()), ("$at", Utc()));
+            ("$status", status), ("$notes", notes.Trim()), ("$at", Utc()), ("$year", year));
         cmd.ExecuteNonQuery();
         Audit(con, tx, actor.Id, "student.attendance", studentId,
             $"school={schoolId};day={date:yyyy-MM-dd};status={status}");
