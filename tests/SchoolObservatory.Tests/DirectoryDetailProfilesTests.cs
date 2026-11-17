@@ -154,4 +154,25 @@ public sealed class DirectoryDetailProfilesTests
         Assert.Contains("ملف المدرسة", main, StringComparison.Ordinal);
         Assert.Contains("ملف الموظف", main, StringComparison.Ordinal);
     }
+    [Fact]
+    public void LocalDirectorySearchMatchesArabicNameVariantsAndEmployeeCode()
+    {
+        var schools = new[]
+        {
+            new School("1", "S01", "مدرسة الآمل", "غيل بن يمين", "حكومية", "أساسي", true),
+            new School("2", "S02", "مدرسة الريدة", "الريدة", "حكومية", "أساسي", true)
+        };
+        Assert.Equal("S01", Assert.Single(DirectorySearch.FindSchools(schools, "الامل")).Code);
+        var staff = new[]
+        {
+            new SchoolStaff("1", "1", "T001", "أحمد", "معلم", "معلم",
+                "رياضيات", "بكالوريوس", "ذكور", true),
+            new SchoolStaff("2", "1", "A002", "علي", "إداري", "وكيل",
+                "", "دبلوم", "ذكور", true)
+        };
+        Assert.Equal("T001", Assert.Single(DirectorySearch.FindStaff(staff, "احمد")).EmployeeCode);
+        Assert.Equal("A002", Assert.Single(DirectorySearch.FindStaff(staff, "a002")).EmployeeCode);
+        Assert.Equal(2, DirectorySearch.FindStaff(staff, "").Count);
+    }
+
 }
