@@ -166,6 +166,31 @@ public sealed class DatabaseSecurityPhase1Tests
     }
 
     [Fact]
+    public void DisasterRecoveryCannotBypassOwnerForReadableDatabaseWithMissingApplicationTables()
+    {
+        var (db, owner, path) = Build();
+        db.AddSchool(owner, "AUTH01", "مدرسة محفوظة", "العليب", "حكومية", "أساسي");
+        var backup = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path)!, "owner-backup.sobak");
+        const string secret = "Separate verified disaster recovery password 12345!";
+        db.CreateEncryptedBackup(owner, backup, secret);
+
+        // Database remains structurally healthy and decryptable, despite a missing
+        // application table. A schema mismatch is NOT permission to bypass owner login.
+        using (var con = DatabaseSecurity.OpenForRegressionTest(path))
+        using (var command = con.CreateCommand())
+        {
+            command.CommandText = "DROP TABLE audit_events;";
+            command.ExecuteNonQuery();
+        }
+        SqliteConnection.ClearAllPools();
+        var before = SHA256.HashData(File.ReadAllBytes(path));
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            OfflineDisasterRecovery.RecoverUnreadableDatabase(path, backup, secret, confirmed: true));
+        Assert.Equal(before, SHA256.HashData(File.ReadAllBytes(path)));
+        Assert.True(File.Exists(DatabaseSecurity.KeyFile(path)));
+    }
+
+    [Fact]
     public void WrongRecoveryPasswordPreservesDamagedDatabaseByteForByte()
     {
         var (db, owner, path) = Build();
