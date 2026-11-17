@@ -25,6 +25,60 @@ public sealed class SafeImportPhase4Tests
             ImportColumnMapping.Auto(type, table.Headers));
 
     [Fact]
+    public void SectionsAreImportedAsRealAcademicGroupsAndCannotBeReversedAfterStudentsJoin()
+    {
+        var (db, actor, school) = New();
+        var sheet = Table(["school_code","grade","section"],
+            ["A01","1","أ"],["A01","1","ب"]);
+        var preview = Plan(db, actor, ImportEntity.Sections, "sections.csv", sheet);
+        Assert.Equal(2, preview.Created);
+        var batch = db.ApplyImport(actor, preview);
+        Assert.Equal(2, db.GetSchoolGrades(actor, school.Id).Count);
+        var repeat = Plan(db, actor, ImportEntity.Sections, "sections.csv", sheet);
+        Assert.Equal(2, repeat.Unchanged);
+        db.SaveStudent(actor, new SchoolStudent("",school.Id,"0001","طالب",
+            1,"أ","","","","",true,"2026/2027"));
+        Assert.Throws<InvalidOperationException>(() => db.ReverseImport(actor,batch.Id));
+        Assert.Equal(2,db.GetSchoolGrades(actor,school.Id).Count);
+    }
+
+    [Fact]
+    public void StudentImportPreservesOriginalRecordIdAndResultsAcrossRepeatedImports()
+    {
+        var (db, actor, school) = New();
+        db.AddSchoolGrade(actor, school.Id, 1, "أ");
+        var sheet = Table(["school_code","student_code","full_name","grade","section","gender"],
+            ["A01","001","سالم","1","أ","ذكور"]);
+        var batch = db.ApplyImport(actor,Plan(db,actor,ImportEntity.Students,"students.csv",sheet));
+        Assert.Equal(1,batch.Created);
+        var student=Assert.Single(db.GetStudents(actor,school.Id));
+        db.SaveStudentResult(actor,school.Id,student.Id,"الفصل الأول","عربي",80,100,"");
+        var unchanged=Plan(db,actor,ImportEntity.Students,"students.csv",sheet);
+        Assert.Equal(ImportRowStatus.Unchanged,Assert.Single(unchanged.Rows).Status);
+        db.ApplyImport(actor,unchanged);
+        Assert.Equal(student.Id,Assert.Single(db.GetStudents(actor,school.Id)).Id);
+        Assert.Single(db.GetStudentResults(actor,school.Id,student.Id));
+        Assert.Throws<InvalidOperationException>(() => db.ReverseImport(actor,batch.Id));
+    }
+
+    [Fact]
+    public void StaffImportKeepsIdentityAndDoesNotDuplicatePayrollAssignment()
+    {
+        var (db, actor, school) = New();
+        var original=Table(["school_code","employee_code","full_name","category"],
+            ["A01","E101","المعلم","معلم"]);
+        db.ApplyImport(actor,Plan(db,actor,ImportEntity.Staff,"employees.csv",original));
+        var employee=Assert.Single(db.GetSchoolStaff(actor,school.Id));
+        var changed=Table(["school_code","employee_code","full_name","category"],
+            ["A01","E101","المعلم بعد التصحيح",""]);
+        var plan=Plan(db,actor,ImportEntity.Staff,"employees.csv",changed);
+        Assert.Equal(ImportRowStatus.Update,Assert.Single(plan.Rows).Status);
+        db.ApplyImport(actor,plan);
+        Assert.Equal(employee.Id,Assert.Single(db.GetSchoolStaff(actor,school.Id)).Id);
+        Assert.Single(db.GetEmployeeAssignments(actor,employee.Id));
+    }
+
+    [Fact]
     public void PreviewShowsOldNewAndBlankCellsDoNotEraseExistingValues()
     {
         var (db, actor, school) = New();
