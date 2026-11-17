@@ -246,4 +246,63 @@ public sealed class DatabaseSecurityPhase1Tests
         Assert.Equal(before, SHA256.HashData(File.ReadAllBytes(path)));
     }
 
+    [Fact]
+    public void ForeignKeyCorruptedLegacyDatabaseCannotBeUpgradedOrAltered()
+    {
+        var path = PathFor();
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+        using (var con = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()))
+        {
+            con.Open();
+            using var cmd = con.CreateCommand();
+            cmd.CommandText = """
+                PRAGMA foreign_keys=OFF;
+                CREATE TABLE parent(id INTEGER PRIMARY KEY);
+                CREATE TABLE child(id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent(id));
+                INSERT INTO child VALUES(3,99);
+                """;
+            cmd.ExecuteNonQuery();
+        }
+        var original = SHA256.HashData(File.ReadAllBytes(path));
+        Assert.ThrowsAny<Exception>(() => new SqliteStore(path));
+        Assert.Equal(original, SHA256.HashData(File.ReadAllBytes(path)));
+        Assert.False(File.Exists(DatabaseSecurity.KeyFile(path)));
+    }
+
+    [Fact]
+    public void AutomaticBackupStoresSecretOnlyUnderDpapiAndDoesNotDuplicateEarly()
+    {
+        var (db, owner, path) = Build();
+        var folder = Path.Combine(Path.GetDirectoryName(path)!, "auto-backups");
+        const string secret = "Unique automatic backup secret 11224466";
+        db.ConfigureAutomaticBackup(owner, folder, 24, secret);
+        var settings = Assert.IsType<AutomaticBackupSettings>(db.GetAutomaticBackupSettings(owner));
+        Assert.Equal(24, settings.IntervalHours);
+        var protectedConfig = File.ReadAllBytes(path + ".automatic.dpapi");
+        Assert.DoesNotContain(secret, Encoding.UTF8.GetString(protectedConfig));
+        var backup = Assert.IsType<string>(db.RunAutomaticBackupIfDue(owner));
+        Assert.NotNull(db.PreviewEncryptedBackup(owner, backup, secret));
+        Assert.Null(db.RunAutomaticBackupIfDue(owner));
+        db.DisableAutomaticBackup(owner);
+        Assert.Null(db.GetAutomaticBackupSettings(owner));
+        Assert.Single(Directory.GetFiles(folder, "*.sobak"));
+    }
+
+    [Fact]
+    public void SchoolScopedUserCannotBackupOrRestoreDistrictDatabase()
+    {
+        var (db, owner, path) = Build();
+        db.AddSchool(owner, "SEC01", "مدرسة", "العليب", "حكومية", "أساسي");
+        var school = Assert.Single(db.GetSchools(owner));
+        db.CreateUser(owner, "scoped", "School-user-safe-654321", Roles.Entry, school.Id);
+        var user = Assert.IsType<UserAccount>(db.Authenticate("scoped", "School-user-safe-654321"));
+        var backup = Path.Combine(Path.GetDirectoryName(path)!, "owner-only.sobak");
+        const string secret = "Backup is limited to original administrator!";
+        Assert.Throws<UnauthorizedAccessException>(() => db.CreateEncryptedBackup(user, backup, secret));
+        db.CreateEncryptedBackup(owner, backup, secret);
+        Assert.Throws<UnauthorizedAccessException>(() => db.PreviewEncryptedBackup(user, backup, secret));
+        Assert.Throws<UnauthorizedAccessException>(() => db.RestoreEncryptedBackup(user, backup, secret, true));
+        Assert.Single(db.GetSchools(owner));
+    }
+
 }
