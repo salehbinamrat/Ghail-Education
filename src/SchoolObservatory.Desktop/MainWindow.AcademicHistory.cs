@@ -62,6 +62,9 @@ public partial class MainWindow
             editor.Children.Add(buttons);
             root.Children.Add(Box(editor));
         }
+        if (AccessPolicy.Has(_actor, PermissionFlags.ViewStudents))
+            root.Children.Add(Btn("عرض كشوف الأعوام السابقة وترفيع الطلاب", (_, _) =>
+                ShowHistoricalRosters(), tone: "secondary"));
         root.Children.Add(Label("تاريخ السنوات المغلقة متاح للعرض والمراجعة، دون تعديل قيودها الرسمية.", 13));
         Display("الأعوام الدراسية والأرشيف", root);
     }
