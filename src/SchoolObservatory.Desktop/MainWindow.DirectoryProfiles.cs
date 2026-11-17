@@ -350,6 +350,7 @@ public partial class MainWindow
             ShowStaffProfile(schoolId, staffId);
         }), canEdit, "success"));
         root.Children.Add(Box(personnel));
+        AppendEmployeeAssignments(root, school, staffId);
         Display("ملف الموظف", root);
     }
 }
