@@ -145,6 +145,11 @@ public sealed class DistrictDirectoryIntegrityTests
         Assert.Equal("LEG-1", conflict.EmployeeCode, ignoreCase: true);
         Assert.Equal(2, conflict.Schools);
         Assert.Equal(1, db.GetLiveDirectoryTotals(owner).DuplicateEmployeeCodes);
+        // Editing a legacy record must never delete or silently merge the other school.
+        var original = Assert.Single(db.GetSchoolStaff(owner, a.Id));
+        db.SaveSchoolStaff(owner, original with { FullName = "اسم مصحح للمدرسة الأولى" });
+        Assert.Single(db.GetSchoolStaff(owner, b.Id));
+        Assert.Equal(1, db.GetLiveDirectoryTotals(owner).DuplicateEmployeeCodes);
     }
 
     [Fact]
@@ -188,4 +193,21 @@ public sealed class DistrictDirectoryIntegrityTests
         Assert.Contains("ملف الموظف", main, StringComparison.Ordinal);
         Assert.DoesNotContain("FontWeights.Normal", main, StringComparison.Ordinal);
     }
+    [Fact]
+    public void UnifiedDirectoryCanBeFilteredBySchoolAndSecondmentWithoutAdditionalCopies()
+    {
+        var (db, owner, a, b, _) = New();
+        db.SaveSchoolStaff(owner, Member(a, "TX-71", "معلم العليب"));
+        db.SaveSchoolStaff(owner, Member(b, "TX-72", "معلم الريدة"));
+        var first = Assert.Single(db.GetSchoolStaff(owner, a.Id));
+        db.SaveStaffPersonnel(owner, a.Id, first.Id,
+            new StaffPersonnelDetails("متعاقد", null, 2022, null, "منتدب",
+                "مكتب التوجيه", 2026, "", ""));
+        var all = db.GetDistrictStaffDirectory(owner);
+        Assert.Equal(first.Id, Assert.Single(DirectorySearch.FindDistrictStaff(all, "مكتب التوجيه")).StaffId);
+        Assert.Equal(b.Id, Assert.Single(DirectorySearch.FindDistrictStaff(all, "الريدة")).SchoolId);
+        Assert.Equal(2, DirectorySearch.FindDistrictStaff(all, "").Count);
+        Assert.Equal(2, all.Select(s => s.StaffId).Distinct().Count());
+    }
+
 }
