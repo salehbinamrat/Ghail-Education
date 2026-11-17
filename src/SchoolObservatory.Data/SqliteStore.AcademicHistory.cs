@@ -178,13 +178,14 @@ public sealed partial class SqliteStore
             foreach (var action in new[] { "INSERT", "UPDATE", "DELETE" })
             {
                 var prefix = action == "DELETE" ? "OLD" : "NEW";
+                string YearExpr(string row) => table == "submissions"
+                    ? $"(SELECT academic_year FROM census_rounds WHERE id={row}.round_id)"
+                    : $"{row}.academic_year";
                 var oldCheck = action == "UPDATE" ? $"""
                     OR EXISTS(SELECT 1 FROM academic_years
-                      WHERE year={yearExpression.Replace("round_id", "OLD.round_id").Replace("academic_year", "OLD.academic_year")}
-                        AND status='closed')
+                      WHERE year={YearExpr("OLD")} AND status='closed')
                     """ : "";
-                var expr = yearExpression.Replace("round_id", prefix + ".round_id")
-                    .Replace("academic_year", prefix + ".academic_year");
+                var expr = YearExpr(prefix);
                 using var trigger = Cmd(con, null, $"""
                     CREATE TRIGGER IF NOT EXISTS phase2_lock_{table}_{action.ToLowerInvariant()}
                     BEFORE {action} ON {table}
