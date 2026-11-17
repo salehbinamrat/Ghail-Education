@@ -154,6 +154,7 @@ public sealed partial class SqliteStore
             RequireOpenYear(con,tx,context.AcademicYear);
         var planned=new List<ImportPlanRow>(table.Rows.Count);
         var seen=new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
+        var seenPayrollCodes=new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
         for(var index=0;index<table.Rows.Count;index++)
         {
             var row=table.Rows[index];
@@ -320,6 +321,12 @@ public sealed partial class SqliteStore
                     result=ImportRowStatus.Conflict;
                     message="هوية الطالب مرتبطة بقيد سابق أو مدرسة أخرى؛ استخدم إجراءات النقل والترفيع.";
                 }
+                else if(entity==ImportEntity.Students && existing is not null &&
+                    changes.Any(change=>change.Field is "grade" or "section"))
+                {
+                    result=ImportRowStatus.Conflict;
+                    message="الصف أو الشعبة تغيرت: يجب استخدام نقل الشعبة أو الترفيع الموثق، وليس تعديل القيد التاريخي عبر الاستيراد.";
+                }
                 else if(entity==ImportEntity.Staff &&
                     context.StaffOwners.TryGetValue(keyCode,out var owners) &&
                     owners.Any(x=>x!=school!.Id))
@@ -350,6 +357,21 @@ public sealed partial class SqliteStore
                 var earlier=planned[seen[displayKey]];
                 planned[seen[displayKey]]=earlier with {Status=ImportRowStatus.Duplicate,
                     Message=$"الصف {earlier.RowNumber}: المعرف مكرر في الصف {line}."};
+            }
+            if(entity==ImportEntity.Staff && keyCode.Length>0 &&
+                !seenPayrollCodes.TryAdd(keyCode,index) &&
+                !string.Equals(planned[seenPayrollCodes[keyCode]].RecordKey,displayKey,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                var earlierIndex=seenPayrollCodes[keyCode];
+                var prior=planned[earlierIndex];
+                planned[earlierIndex]=prior with
+                {
+                    Status=ImportRowStatus.Conflict,
+                    Message=$"الصف {prior.RowNumber}: الرقم الوظيفي يرد ضمن ملاك أكثر من مدرسة في الملف (الصف {line})."
+                };
+                result=ImportRowStatus.Conflict;
+                message=$"الصف {line}: الرقم الوظيفي نفسه موجود في ملاك مدرسة أخرى بالصف {prior.RowNumber}.";
             }
             planned.Add(new ImportPlanRow(line,displayKey,result,entityId,changes,message,existingRecordSha256));
         }
