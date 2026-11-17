@@ -20,11 +20,21 @@ public static class ReportDocumentRenderer
     private const double A4Height = 1122.5; // 297 mm * 96/25.4
     private const double Margin = 44;
     private static readonly FontFamily Arial = new("Arial");
-    private static readonly Brush Ink = new SolidColorBrush(Color.FromRgb(17, 58, 81));
-    private static readonly Brush Muted = new SolidColorBrush(Color.FromRgb(61, 91, 108));
-    private static readonly Brush Accent = new SolidColorBrush(Color.FromRgb(6, 104, 145));
-    private static readonly Brush Pale = new SolidColorBrush(Color.FromRgb(227, 242, 249));
-    private static readonly Brush Line = new SolidColorBrush(Color.FromRgb(197, 220, 230));
+
+    // The same renderer is used by UI preview and independent STA PDF tests.
+    // WPF Freezables must be frozen before sharing across dispatcher threads.
+    private static Brush Frozen(byte red, byte green, byte blue)
+    {
+        var brush = new SolidColorBrush(Color.FromRgb(red, green, blue));
+        brush.Freeze();
+        return brush;
+    }
+
+    private static readonly Brush Ink = Frozen(17, 58, 81);
+    private static readonly Brush Muted = Frozen(61, 91, 108);
+    private static readonly Brush Accent = Frozen(6, 104, 145);
+    private static readonly Brush Pale = Frozen(227, 242, 249);
+    private static readonly Brush Line = Frozen(197, 220, 230);
 
     public static FixedDocument Build(ReportTable report, ReportPrintOptions? options = null)
     {
