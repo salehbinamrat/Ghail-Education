@@ -428,52 +428,12 @@ public partial class MainWindow
         var import = Stack();
         import.Children.Add(Label("استيراد كشف الطلاب من Excel أو Word", 16, true));
         import.Children.Add(Label("يدعم .xlsx و.docx المنظمة. يلزم رقم الطالب والاسم والصف، وتُقبل الشعبة والجنس ورمز المدرسة وولي الأمر كأعمدة إضافية. أضف الصف والشعبة قبل الاستيراد.", 13));
-        bool isImporting = false;
-        import.Children.Add(Btn("اختيار ملف واستيراد الطلاب", async (_, _) =>
-        {
-            if (isImporting) return;
-            if (schoolPicker.SelectedItem is not School school) return;
-            isImporting = true;
-            import.IsEnabled = false;
-            schoolPicker.IsEnabled = false;
-            gradePicker.IsEnabled = false;
-            try
+        import.Children.Add(Btn("استيراد الطلاب بعد المعاينة التفصيلية",
+            (_,_) =>
             {
-                var dialog = new OpenFileDialog
-                {
-                    Filter = "Excel (*.xlsx)|*.xlsx|Word (*.docx)|*.docx",
-                    Title = "اختر كشف طلاب المدرسة"
-                };
-                if (dialog.ShowDialog() != true) return;
-                var rows = await Task.Run(() => StudentImportParser.Parse(dialog.FileName));
-                var byGrade = rows.GroupBy(x => (x.Grade, x.Section))
-                    .Select(g => $"{GradeNames.ForStage(school.Stage, g.Key.Grade)} / الشعبة {g.Key.Section}: {g.Count()} طالب")
-                    .Take(12);
-                var message = $"المدرسة المحددة: {school.Name}\nعدد السجلات: {rows.Count}\n" +
-                    string.Join("\n", byGrade) +
-                    "\n\nسيتم تحديث سجل الطالب الموجود حسب رمزه داخل المدرسة نفسها." +
-                    "\nلن تُحذف السجلات الغائبة عن الملف. هل توافق على الاستيراد؟";
-                if (MessageBox.Show(message, "مراجعة كشف الطلاب",
-                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-                var saved = await Task.Run(() => _store.ImportStudents(_actor, school.Id,
-                    rows, Path.GetFileName(dialog.FileName)));
-                Info($"تم استيراد {saved} طالبا بأمان إلى المدرسة المحددة.");
-                RefreshRoster();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message, "تعذر استيراد كشف الطلاب",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
-            finally
-            {
-                isImporting = false;
-                schoolPicker.IsEnabled = true;
-                gradePicker.IsEnabled = true;
-                import.IsEnabled = schoolPicker.SelectedItem is School current &&
-                    AccessPolicy.CanManageStudents(_actor, current.Id);
-            }
-        }, tone: "secondary"));
+                if (schoolPicker.SelectedItem is not School school) return;
+                ShowImportWizard(ImportEntity.Students, school.Id);
+            },tone:"secondary"));
         root.Children.Add(Box(import));
         schoolPicker.SelectionChanged += (_, _) =>
         {

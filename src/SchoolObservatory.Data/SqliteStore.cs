@@ -21,7 +21,7 @@ public sealed partial class SqliteStore
     {
         var con = DatabaseSecurity.OpenEncrypted(_databasePath, _databaseKey);
         using var cmd = con.CreateCommand();
-        cmd.CommandText = "PRAGMA busy_timeout=5000;";
+        cmd.CommandText = "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;";
         cmd.ExecuteNonQuery();
         return con;
     }
@@ -49,14 +49,14 @@ public sealed partial class SqliteStore
         int databaseVersion;
         using (var version = Cmd(con, null, "PRAGMA user_version;"))
             databaseVersion = Convert.ToInt32(version.ExecuteScalar(), CultureInfo.InvariantCulture);
-        if (databaseVersion > 4)
+        if (databaseVersion > 5)
             throw new InvalidDataException("This database uses a newer unsupported schema. Open it with the matching application version.");
         using var pragma = Cmd(con, null, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;");
         pragma.ExecuteNonQuery();
         // Version 0 is legacy. Back up every existing schema before additive migrations.
         using (var tableCount = Cmd(con, null, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"))
         {
-            if (databaseVersion < 4 &&
+            if (databaseVersion < 5 &&
                 Convert.ToInt32(tableCount.ExecuteScalar(), CultureInfo.InvariantCulture) > 0)
                 DatabaseSecurity.BackupSchemaBeforeChanges(_databasePath, _databaseKey);
         }
@@ -130,7 +130,8 @@ public sealed partial class SqliteStore
         MigrateStudentRecords(con);
         MigrateAcademicHistory(con);
         MigratePhase3Protection(con);
-        using (var mark = Cmd(con, null, "PRAGMA user_version=4;")) mark.ExecuteNonQuery();
+        MigratePhase4Import(con);
+        using (var mark = Cmd(con, null, "PRAGMA user_version=5;")) mark.ExecuteNonQuery();
         using (var commit = Cmd(con, null, "COMMIT;")) commit.ExecuteNonQuery();
         }
         catch

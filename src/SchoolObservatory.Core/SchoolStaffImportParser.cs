@@ -15,6 +15,10 @@ public sealed record StaffImportRow(
 /// Parses a bounded OOXML .xlsx worksheet or .docx table. No macros, remote resources,
 /// legacy .xls/.doc or unstructured Word prose are executed or interpreted.
 /// </summary>
+/// <summary>Rows as parsed, with source sheet/table row coordinates including gaps.</summary>
+public sealed record StructuredImportRows(
+    IReadOnlyList<IReadOnlyList<string>> Rows, IReadOnlyList<int> RowNumbers);
+
 public static class SchoolStaffImportParser
 {
     private const long MaxFileSize = 8_000_000;
@@ -41,6 +45,10 @@ public static class SchoolStaffImportParser
 
     /// <summary>Shared bounded OOXML table extraction for staff and student imports.</summary>
     public static IReadOnlyList<IReadOnlyList<string>> ReadStructuredTable(
+        string path, Func<IReadOnlyList<string>, bool> matchesHeaders) =>
+        ReadStructuredTableWithPositions(path, matchesHeaders).Rows;
+
+    public static StructuredImportRows ReadStructuredTableWithPositions(
         string path, Func<IReadOnlyList<string>, bool> matchesHeaders)
     {
         ArgumentNullException.ThrowIfNull(matchesHeaders);
@@ -57,13 +65,34 @@ public static class SchoolStaffImportParser
             archive.Entries.Any(e => e.Length > MaxXmlBytes) ||
             archive.Entries.Sum(e => e.Length) > 40_000_000)
             throw new ArgumentException("الملف المضغوط يحتوي محتوى أكبر من الحد الآمن.");
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in archive.Entries)
+        {
+            var name = entry.FullName.Replace('\\','/');
+            if (!names.Add(name) || name.StartsWith('/') ||
+                name.Split('/').Any(part => part is "." or "..") ||
+                name.StartsWith("xl/externalLinks/", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("vbaProject", StringComparison.OrdinalIgnoreCase) ||
+                name.Equals("xl/connections.xml", StringComparison.OrdinalIgnoreCase) ||
+                (entry.CompressedLength == 0 && entry.Length > 0) ||
+                (entry.CompressedLength > 0 && entry.Length / entry.CompressedLength > 400))
+                throw new ArgumentException("ملف Office يحتوي مكونات خارجية أو مضغوطة بشكل خطير أو مسارات مكررة.");
+            if (name.EndsWith(".rels", StringComparison.OrdinalIgnoreCase))
+            {
+                var rels = ReadXml(archive, entry.FullName);
+                if (rels.Descendants().Any(x =>
+                    string.Equals((string?)x.Attribute("TargetMode"), "External",
+                        StringComparison.OrdinalIgnoreCase)))
+                    throw new ArgumentException("روابط Office الخارجية غير مدعومة في الاستيراد.");
+            }
+        }
 
         return extension == ".docx"
             ? ParseWord(archive, matchesHeaders)
             : ParseExcel(archive);
     }
 
-    private static IReadOnlyList<IReadOnlyList<string>> ParseWord(
+    private static StructuredImportRows ParseWord(
         ZipArchive archive, Func<IReadOnlyList<string>, bool> matchesHeaders)
     {
         XNamespace word = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
@@ -87,13 +116,14 @@ public static class SchoolStaffImportParser
                     throw new ArgumentException("جدول Word يحتوي خلايا مدمجة أو جداول داخلية؛ افصل الخلايا قبل استيراد بيانات المدارس.");
                 if (rows.Length > MaxRows + 1)
                     throw new ArgumentException("عدد صفوف الجدول يتجاوز الحد المسموح.");
-                return rows;
+                return new StructuredImportRows(rows,
+                    Enumerable.Range(1, rows.Length).ToArray());
             }
         }
         throw new ArgumentException("لم يعثر على جدول Word منظم بعناوين الأعمدة المطلوبة.");
     }
 
-    private static IReadOnlyList<IReadOnlyList<string>> ParseExcel(ZipArchive archive)
+    private static StructuredImportRows ParseExcel(ZipArchive archive)
     {
         XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
         var shared = archive.GetEntry("xl/sharedStrings.xml") is not null
@@ -104,8 +134,17 @@ public static class SchoolStaffImportParser
         var sheetPath = LocateFirstSheet(archive);
         var document = ReadXml(archive, sheetPath);
         var rows = new List<IReadOnlyList<string>>();
+        var rowNumbers = new List<int>();
+        var previousRow = 0;
         foreach (var row in document.Descendants(ns + "sheetData").Elements(ns + "row"))
         {
+            var rowReference = (string?)row.Attribute("r");
+            var sourceRow = previousRow + 1;
+            if (rowReference is not null &&
+                (!int.TryParse(rowReference, NumberStyles.None, CultureInfo.InvariantCulture,
+                    out sourceRow) || sourceRow <= previousRow || sourceRow > 1_048_576))
+                throw new ArgumentException($"ورقة Excel — رقم صف غير صالح أو مكرر: {rowReference}.");
+            previousRow = sourceRow;
             var values = new SortedDictionary<int, string>();
             var sequential = 0;
             foreach (var cell in row.Elements(ns + "c"))
@@ -114,8 +153,22 @@ public static class SchoolStaffImportParser
                 // remap a school or personnel number. Only import literal values.
                 if (cell.Element(ns + "f") is not null ||
                     (string?)cell.Attribute("t") == "e")
-                    throw new ArgumentException("يحتوي ملف Excel خلايا بصيغ حسابية أو أخطاء؛ حوّل الجدول إلى قيم ثابتة قبل الاستيراد.");
-                var col = ExcelColumn((string?)cell.Attribute("r"), sequential);
+                    throw new ArgumentException(
+                        $"ورقة Excel — الخلية {(string?)cell.Attribute("r") ?? "غير معروفة"}: صيغة أو خطأ. حوّلها إلى قيمة ثابتة قبل الاستيراد.");
+                var reference = (string?)cell.Attribute("r");
+                if (reference is not null)
+                {
+                    var marker = 0;
+                    while (marker < reference.Length && char.IsAsciiLetterUpper(reference[marker]))
+                        marker++;
+                    if (marker is < 1 or > 3 ||
+                        !int.TryParse(reference.AsSpan(marker), NumberStyles.None,
+                            CultureInfo.InvariantCulture, out var referencedRow) ||
+                        referencedRow != sourceRow)
+                        throw new ArgumentException(
+                            $"ورقة Excel — الخلية {reference}: رقم الخلية لا يطابق صفها {sourceRow}.");
+                }
+                var col = ExcelColumn(reference, sequential);
                 sequential = col + 1;
                 if (col >= 30) throw new ArgumentException("عدد أعمدة السجلات في Excel كبير جدا.");
                 string value;
@@ -133,16 +186,24 @@ public static class SchoolStaffImportParser
                         value = shared[index];
                     }
                 }
-                values[col] = value.Trim();
+                // Malformed OOXML may repeat a coordinate. Never let a later cell
+                // silently replace an identifier or a value already parsed.
+                if (!values.TryAdd(col, value.Trim()))
+                {
+                    var coordinate = (string?)cell.Attribute("r") ?? $"العمود {col + 1}";
+                    throw new ArgumentException(
+                        $"ورقة Excel — الخلية {coordinate}: عنوان خلية مكرر، ولا يسمح باستبدال قيمة سابقة.");
+                }
             }
             if (values.Count == 0) continue;
             var max = values.Keys.Max();
             rows.Add(Enumerable.Range(0, max + 1)
                 .Select(i => values.GetValueOrDefault(i, "")).ToArray());
+            rowNumbers.Add(sourceRow);
             if (rows.Count > MaxRows + 1)
                 throw new ArgumentException("ملف السجلات يحتوي صفوفا أكثر من الحد المسموح.");
         }
-        return rows;
+        return new StructuredImportRows(rows, rowNumbers);
     }
 
     private static string LocateFirstSheet(ZipArchive archive)

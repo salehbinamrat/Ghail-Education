@@ -10,6 +10,21 @@ public static class SchoolCsvParser
 {
     private static readonly string[] RequiredHeaders = ["code", "name", "zone", "ownership", "stage"];
 
+    /// <summary>Bounded RFC-4180 table extraction for the Phase 4 guided import.</summary>
+    public static IReadOnlyList<IReadOnlyList<string>> ParseImportRows(string csv)
+    {
+        if (csv.Length > 5_000_000)
+            throw new ArgumentException("حجم CSV يتجاوز 5 ميجابايت.");
+        var rows = ParseRows(csv.TrimStart('\uFEFF'));
+        if (rows.Count < 2 || rows.Count > 5001)
+            throw new ArgumentException("يجب أن يحتوي CSV على عناوين و1 إلى 5000 صف.");
+        if (rows[0].Count is 0 or > 30 || rows.Any(r => r.Count > 30))
+            throw new ArgumentException("عدد أعمدة CSV غير صالح، الحد الأقصى 30.");
+        if (rows.Any(r => r.Any(v => v.Length > 2000)))
+            throw new ArgumentException("تجاوزت إحدى الخلايا الحد الآمن (2000 حرف).");
+        return rows.Select(r => (IReadOnlyList<string>)r.ToArray()).ToArray();
+    }
+
     /// <summary>Reject undecodable UTF-8 instead of silently saving corrupted Arabic school names.</summary>
     public static IReadOnlyList<SchoolImport> ParseUtf8(ReadOnlySpan<byte> bytes)
     {
