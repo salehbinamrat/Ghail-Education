@@ -208,4 +208,20 @@ public sealed class ProfessionalUiPhase5Tests
         Assert.Contains("exportRoster.IsEnabled = canManage;", students, StringComparison.Ordinal);
         Assert.Contains("printRoster.IsEnabled = canManage;", students, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void SchoolUnsavedDraftSurvivesNavigationButNeverWritesUntilSave()
+    {
+        var source = Desktop("MainWindow.xaml.cs");
+        Assert.Contains("schools.draft.exists", source, StringComparison.Ordinal);
+        Assert.Contains("schools.draft.code", source, StringComparison.Ordinal);
+        Assert.Contains("schools.draft.name", source, StringComparison.Ordinal);
+        Assert.Contains("schools.draft.zone", source, StringComparison.Ordinal);
+        Assert.Contains("code.TextChanged += (_, _) => SaveSchoolDraft()", source, StringComparison.Ordinal);
+        Assert.Contains("ClearPersistedSchoolDraft()", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("_store.AddSchool(_actor", source[
+            source.IndexOf("void SaveSchoolDraft()", StringComparison.Ordinal)..
+            source.IndexOf("void ClearPersistedSchoolDraft()", StringComparison.Ordinal)],
+            StringComparison.Ordinal);
+    }
 }
