@@ -128,6 +128,9 @@ public partial class MainWindow : Window
     {
         SectionTitle.Text = title;
         ContentHost.Content = body;
+        // Opening a different page or profile should start at its heading, not at
+        // the vertical position left from the previous long form.
+        ContentScroll.ScrollToTop();
         UpdateActiveNavigation(title);
     }
 
