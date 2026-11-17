@@ -58,7 +58,13 @@ public sealed class DatabaseSecurityPhase1Tests
         var db = new SqliteStore(path);
         db.Initialize();
         Assert.NotEqual("SQLite format 3\0", Encoding.ASCII.GetString(File.ReadAllBytes(path), 0, 16));
-        Assert.NotEmpty(Directory.GetFiles(System.IO.Path.GetDirectoryName(path)!, "*.legacy-original"));
+        // The plaintext rollback must not persist after a verified successful migration.
+        Assert.Empty(Directory.GetFiles(System.IO.Path.GetDirectoryName(path)!, "*.legacy-original"));
+        var recovery = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path)!, "recovery");
+        var snapshots = Directory.GetFiles(recovery, "before-encryption-*.db");
+        Assert.NotEmpty(snapshots);
+        Assert.All(snapshots, snapshot =>
+            Assert.NotEqual("SQLite format 3\0", Encoding.ASCII.GetString(File.ReadAllBytes(snapshot), 0, 16)));
         Assert.Equal(1, DatabaseSecurity.CountRows(path, "legacy_records"));
     }
 
