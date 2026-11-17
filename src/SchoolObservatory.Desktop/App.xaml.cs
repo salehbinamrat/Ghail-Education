@@ -1,4 +1,7 @@
 using System.IO;
+using System.Security.Cryptography;
+using Microsoft.Data.Sqlite;
+using Microsoft.Win32;
 using System.Windows;
 using SchoolObservatory.Core;
 using SchoolObservatory.Data;
@@ -15,8 +18,7 @@ public partial class App : Application
             var root = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "SchoolObservatory");
-            var store = new SqliteStore(Path.Combine(root, "observatory.db"));
-            store.Initialize();
+            var store = StartEncryptedStore(Path.Combine(root, "observatory.db"));
 
             string? username = null;
             if (!store.HasUsers())
@@ -38,6 +40,42 @@ public partial class App : Application
             MessageBox.Show("تعذر بدء المرصد المدرسي: " + ex.Message,
                 "المرصد المدرسي", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
+        }
+    }
+
+    private SqliteStore StartEncryptedStore(string path)
+    {
+        try
+        {
+            var store = new SqliteStore(path);
+            store.Initialize();
+            return store;
+        }
+        catch (Exception ex) when (File.Exists(path) &&
+            (ex is SqliteException or CryptographicException or InvalidDataException or IOException))
+        {
+            var answer = MessageBox.Show(
+                "قاعدة البيانات المحلية غير قابلة للفتح أو التحقق. لن يتم إنشاء قاعدة بديلة تلقائيا. " +
+                "يمكنك الاستعادة من نسخة مشفرة موثوقة بكلمة استعادة مستقلة؛ ستُحفَظ القاعدة الأصلية ومفتاحها للاسترجاع. هل تريد الاستعادة؟",
+                "استعادة طوارئ دون إنترنت", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (answer != MessageBoxResult.Yes) throw;
+            var picker = new OpenFileDialog
+            {
+                Title = "اختر نسخة مشفرة سليمة لاستعادة قاعدة البيانات",
+                Filter = "School Observatory backup (*.sobak)|*.sobak",
+                CheckFileExists = true
+            };
+            if (picker.ShowDialog() != true) throw;
+            var prompt = new RecoveryPasswordDialog();
+            if (prompt.ShowDialog() != true) throw;
+            if (MessageBox.Show(
+                "تأكيد نهائي: استعادة قاعدة مشفرة من نسخة احتياطية. ستُحفَظ ملفات القاعدة غير القابلة للفتح في مجلد recovery. تابع؟",
+                "تأكيد استعادة الطوارئ", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                throw;
+            OfflineDisasterRecovery.RecoverUnreadableDatabase(path, picker.FileName, prompt.RecoveryPassword, confirmed: true);
+            var recovered = new SqliteStore(path);
+            recovered.Initialize();
+            return recovered;
         }
     }
 
