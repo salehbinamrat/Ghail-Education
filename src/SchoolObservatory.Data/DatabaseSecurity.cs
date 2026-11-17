@@ -192,20 +192,27 @@ public static class DatabaseSecurity
     /// <summary>SHA-256 of every typed value in every application table, in deterministic order.</summary>
     private static IReadOnlyDictionary<string, string> TableFingerprints(SqliteConnection con)
     {
-        var names = TableCounts(con).Keys;
+        var counts = TableCounts(con);
         var result = new SortedDictionary<string, string>(StringComparer.Ordinal);
-        foreach (var name in names)
+        foreach (var name in counts.Keys)
         {
             var escaped = "\"" + name.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
             using var countColumns = con.CreateCommand();
             countColumns.CommandText = "SELECT * FROM " + escaped + " LIMIT 0";
             using var schema = countColumns.ExecuteReader();
-            var order = string.Join(",", Enumerable.Range(1, schema.FieldCount));
+            var columnCount = schema.FieldCount;
+            var order = string.Join(",", Enumerable.Range(1, columnCount));
             using var cmd = con.CreateCommand();
             cmd.CommandText = "SELECT * FROM " + escaped + (order.Length > 0 ? " ORDER BY " + order : "");
             using var r = cmd.ExecuteReader();
             using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            // Include record and column boundaries, not just concatenated cell values.
+            // Otherwise two one-column rows could hash like one two-column row.
+            hash.AppendData(BitConverter.GetBytes(counts[name]));
+            hash.AppendData(BitConverter.GetBytes(columnCount));
             while (r.Read())
+            {
+                hash.AppendData(new byte[] { 0xFE }); // Unambiguous row boundary.
                 for (var i = 0; i < r.FieldCount; i++)
                 {
                     var value = r.GetValue(i);
@@ -223,8 +230,20 @@ public static class DatabaseSecurity
                     hash.AppendData(BitConverter.GetBytes(bytes.Length));
                     hash.AppendData(bytes);
                 }
+            }
             result.Add(name, Convert.ToHexString(hash.GetHashAndReset()));
         }
+        return result;
+    }
+
+    private static IReadOnlyDictionary<string, string> SchemaDefinitions(SqliteConnection con)
+    {
+        var result = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        using var cmd = con.CreateCommand();
+        cmd.CommandText = "SELECT type,name,tbl_name,COALESCE(sql,'') FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name,tbl_name";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            result.Add(string.Join("/", reader.GetString(0), reader.GetString(1), reader.GetString(2)), reader.GetString(3));
         return result;
     }
 
@@ -235,6 +254,13 @@ public static class DatabaseSecurity
         if (first.Count != second.Count || first.Any(pair =>
                 !second.TryGetValue(pair.Key, out var fingerprint) || fingerprint != pair.Value))
             throw new InvalidDataException("Encrypted database differs from the original records.");
+        // Check definitions of all application tables, indexes, triggers and views:
+        // equal cell values alone do not prove that all constraints were preserved.
+        var sourceSchema = SchemaDefinitions(source);
+        var destinationSchema = SchemaDefinitions(destination);
+        if (sourceSchema.Count != destinationSchema.Count || sourceSchema.Any(pair =>
+                !destinationSchema.TryGetValue(pair.Key, out var definition) || definition != pair.Value))
+            throw new InvalidDataException("Encrypted database schema differs from the original.");
     }
 
     public static string Prepare(string databasePath)
