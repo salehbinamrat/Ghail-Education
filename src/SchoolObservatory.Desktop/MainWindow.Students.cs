@@ -312,6 +312,8 @@ public partial class MainWindow
             editor.Visibility = canManage ? Visibility.Visible : Visibility.Collapsed;
             exportRoster.Visibility = canManage ? Visibility.Visible : Visibility.Collapsed;
             printRoster.Visibility = canManage ? Visibility.Visible : Visibility.Collapsed;
+            exportRoster.IsEnabled = canManage;
+            printRoster.IsEnabled = canManage;
         }
 
         var newGrade = new ComboBox
