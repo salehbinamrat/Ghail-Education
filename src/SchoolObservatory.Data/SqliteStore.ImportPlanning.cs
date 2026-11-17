@@ -282,16 +282,48 @@ public sealed partial class SqliteStore
                 }
                 if(entity==ImportEntity.Schools)
                 {
-                    CheckSchoolInput(Required("code"),Required("name"),Required("zone"),
-                        Required("ownership"),Required("stage"));
-                    CheckGender(Required("gender"));
+                    var code=Required("code");
+                    var name=Required("name");
+                    var zone=Required("zone");
+                    var ownership=Required("ownership");
+                    var stage=Required("stage");
+                    var gender=Required("gender");
+                    if(code.Length>32)
+                        throw new ArgumentException($"العمود {Column("code")}: الرمز يتجاوز 32 حرفا.");
+                    if(name.Length>180)
+                        throw new ArgumentException($"العمود {Column("name")}: الاسم يتجاوز 180 حرفا.");
+                    if(zone.Length>100)
+                        throw new ArgumentException($"العمود {Column("zone")}: الموقع يتجاوز 100 حرف.");
+                    if(ownership is not ("حكومية" or "أهلية"))
+                        throw new ArgumentException($"العمود {Column("ownership")}: نوع الملكية يجب أن يكون حكومية أو أهلية.");
+                    if(stage is not ("روضة" or "أساسي" or "ثانوي" or "أساسي وثانوي" or "مجمع تربوي"))
+                        throw new ArgumentException($"العمود {Column("stage")}: المرحلة الدراسية غير معروفة.");
+                    if(gender is not ("ذكور" or "إناث" or "مختلطة"))
+                        throw new ArgumentException($"العمود {Column("gender")}: نوع المدرسة غير معروف.");
+                    CheckSchoolInput(code,name,zone,ownership,stage);
+                    CheckGender(gender);
                 }
                 else if(entity==ImportEntity.Staff)
                 {
-                    ValidateStaff(new SchoolStaff(entityId??"",school!.Id,Required("employee_code"),
-                        Required("full_name"),Required("category"),state.GetValueOrDefault("job_title",""),
+                    var code=Required("employee_code");
+                    var name=Required("full_name");
+                    var category=Required("category");
+                    var gender=Required("gender");
+                    if(code.Length>40)
+                        throw new ArgumentException($"العمود {Column("employee_code")}: الرقم الوظيفي يتجاوز 40 حرفا.");
+                    if(name.Length>180)
+                        throw new ArgumentException($"العمود {Column("full_name")}: الاسم يتجاوز 180 حرفا.");
+                    if(category is not ("معلم" or "إداري" or "أخصائي اجتماعي"))
+                        throw new ArgumentException($"العمود {Column("category")}: فئة الموظف غير مدعومة.");
+                    if(gender is not ("ذكور" or "إناث" or "غير محدد"))
+                        throw new ArgumentException($"العمود {Column("gender")}: الجنس غير معروف.");
+                    foreach(var field in new[]{"job_title","specialization","qualification"})
+                        if(state.GetValueOrDefault(field,"").Length>120)
+                            throw new ArgumentException($"العمود {Column(field)}: القيمة تتجاوز 120 حرفا.");
+                    ValidateStaff(new SchoolStaff(entityId??"",school!.Id,code,name,category,
+                        state.GetValueOrDefault("job_title",""),
                         state.GetValueOrDefault("specialization",""),
-                        state.GetValueOrDefault("qualification",""),Required("gender"),true));
+                        state.GetValueOrDefault("qualification",""),gender,true));
                 }
                 else
                 {
@@ -299,11 +331,24 @@ public sealed partial class SqliteStore
                     if(!int.TryParse(grade,NumberStyles.None,CultureInfo.InvariantCulture,out var number) ||
                         !GradeNames.Allowed(school!.Fields["stage"]).Contains(number))
                         throw new ArgumentException($"العمود {Column("grade")}: الصف لا يتبع مرحلة المدرسة.");
-                    var section=SectionName(Required("section"));
+                    string section;
+                    try { section=SectionName(Required("section")); }
+                    catch(ArgumentException ex)
+                    {
+                        throw new ArgumentException($"العمود {Column("section")}: {ex.Message}");
+                    }
                     if(!context.Grades.ContainsKey(GradeKey(school!.Id,grade,section)))
                         throw new ArgumentException($"العمود {Column("section")}: الشعبة {section} في الصف {grade} غير مسجلة؛ أضفها أولا.");
-                    ValidateStudent(Required("full_name"),state.GetValueOrDefault("guardian_name",""),
-                        state.GetValueOrDefault("guardian_phone",""),state.GetValueOrDefault("notes",""));
+                    var name=Required("full_name");
+                    var guardian=state.GetValueOrDefault("guardian_name","");
+                    var phone=state.GetValueOrDefault("guardian_phone","");
+                    if(name.Length>180)
+                        throw new ArgumentException($"العمود {Column("full_name")}: الاسم يتجاوز 180 حرفا.");
+                    if(guardian.Length>180)
+                        throw new ArgumentException($"العمود {Column("guardian_name")}: اسم ولي الأمر يتجاوز 180 حرفا.");
+                    if(phone.Length>30 || phone.Any(ch=>!(char.IsAsciiDigit(ch) || ch is '+' or '-' or ' ')))
+                        throw new ArgumentException($"العمود {Column("guardian_phone")}: هاتف ولي الأمر غير صحيح.");
+                    ValidateStudent(name,guardian,phone,state.GetValueOrDefault("notes",""));
                     var gender=Required("gender");
                     if(gender is not ("ذكور" or "إناث") ||
                         school.Fields["gender"]!="مختلطة" && gender!=school.Fields["gender"])
