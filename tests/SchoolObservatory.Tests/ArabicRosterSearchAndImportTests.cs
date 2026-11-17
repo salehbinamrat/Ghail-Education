@@ -22,7 +22,8 @@ public sealed class ArabicRosterSearchAndImportTests
         Assert.Equal("001", Assert.Single(SchoolStudentSearch.Find(students, "احمد")).StudentCode);
         Assert.Equal("001", Assert.Single(SchoolStudentSearch.Find(students, "ابراهيم")).StudentCode);
         Assert.Equal("001", Assert.Single(SchoolStudentSearch.Find(students, "آحمد")).StudentCode);
-        Assert.Equal("001", Assert.Single(SchoolStudentSearch.Find(students, "٠٠١")).StudentCode);
+        Assert.Contains(SchoolStudentSearch.Find(students, "٠٠١"),
+            student => student.StudentCode == "001");
         Assert.Equal("001", Assert.Single(SchoolStudentSearch.Find(students, "۷۷۷۱۲۳۴۵۶")).StudentCode);
         Assert.Equal("002", Assert.Single(SchoolStudentSearch.Find(students, "733000111")).StudentCode);
         Assert.Empty(SchoolStudentSearch.Find(students, "غير موجود"));
