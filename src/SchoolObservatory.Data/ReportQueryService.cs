@@ -43,8 +43,8 @@ public sealed class ReportQueryService
 
         var filter = request.Filters;
         var allSchools = _store.GetSchools(actor);
-        if (filter.SchoolId is { Length: > 0 } school &&
-            !allSchools.Any(s => s.Id == school))
+        if (filter.SchoolId is { Length: > 0 } requestedSchoolId &&
+            !allSchools.Any(s => s.Id == requestedSchoolId))
             throw new UnauthorizedAccessException("المدرسة المطلوبة خارج صلاحية الحساب.");
         var schools = allSchools.Where(s =>
             (filter.SchoolId is null || s.Id == filter.SchoolId) &&
