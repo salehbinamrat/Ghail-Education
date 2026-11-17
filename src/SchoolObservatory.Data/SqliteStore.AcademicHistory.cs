@@ -137,11 +137,13 @@ public sealed partial class SqliteStore
             INSERT OR IGNORE INTO academic_years(year,status,is_active,opened_utc)
             SELECT value,'open',0,$now FROM settings WHERE key='academic_year';
             INSERT OR IGNORE INTO student_people(id,created_utc)
-            SELECT id,created_utc FROM school_students;
+            SELECT s.id,s.created_utc FROM school_students s
+            WHERE NOT EXISTS(SELECT 1 FROM student_person_links l WHERE l.student_id=s.id);
             INSERT OR IGNORE INTO student_person_links(student_id,person_id)
             SELECT id,id FROM school_students;
             INSERT OR IGNORE INTO employee_people(id,employee_code,full_name,created_utc)
-            SELECT id,employee_code,full_name,created_utc FROM school_staff;
+            SELECT s.id,s.employee_code,s.full_name,s.created_utc FROM school_staff s
+            WHERE NOT EXISTS(SELECT 1 FROM employee_staff_links l WHERE l.staff_id=s.id);
             INSERT OR IGNORE INTO employee_staff_links(staff_id,person_id)
             SELECT id,id FROM school_staff;
             """, ("$now", Utc()));
@@ -166,7 +168,7 @@ public sealed partial class SqliteStore
             WHERE NOT EXISTS(
               SELECT 1 FROM student_placement_events e
               WHERE e.student_id=en.student_id AND e.academic_year=en.academic_year
-                AND e.action='legacy')
+                )
             """);
         history.ExecuteNonQuery();
 
