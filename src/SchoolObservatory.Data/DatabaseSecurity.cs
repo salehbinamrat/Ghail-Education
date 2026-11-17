@@ -283,6 +283,13 @@ public static class DatabaseSecurity
                 var key = Convert.ToHexString(fresh);
                 WriteKey(keyFile, fresh);
                 using var con = OpenEncrypted(db, key, create: true);
+                // Force an actual SQLCipher database page before checking its on-disk header.
+                // SELECT sqlite_master alone may leave a zero-byte uninitialized file.
+                using (var marker = con.CreateCommand())
+                {
+                    marker.CommandText = "PRAGMA application_id=1397707276;";
+                    marker.ExecuteNonQuery();
+                }
                 VerifyIntegrity(con);
                 if (IsPlaintext(db))
                     throw new CryptographicException("Native SQLite engine is not encrypting data.");
