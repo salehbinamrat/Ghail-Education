@@ -4,8 +4,8 @@
         Title="المرصد المدرسي" Width="1240" Height="800" MinWidth="770" MinHeight="540"
         Background="#EAF8FC" FlowDirection="RightToLeft" WindowStartupLocation="CenterScreen">
   <Grid>
-    <Grid.ColumnDefinitions><ColumnDefinition Width="246"/><ColumnDefinition Width="*" MinWidth="0"/></Grid.ColumnDefinitions>
-    <Border Grid.Column="0" Background="#07527E" Padding="12">
+    <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="230"/><ColumnDefinition Width="*" MinWidth="0"/></Grid.ColumnDefinitions>
+    <Border x:Name="SidebarPanel" Grid.Column="0" Background="#07527E" Padding="12">
       <DockPanel>
         <StackPanel DockPanel.Dock="Top" Margin="5,12,5,20">
           <TextBlock Text="المرصد المدرسي" Foreground="White" FontSize="22" FontWeight="Bold"/>
@@ -21,23 +21,35 @@
       </DockPanel>
     </Border>
     <Grid Grid.Column="1">
-      <Grid.RowDefinitions><RowDefinition Height="Auto" MinHeight="72"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+      <Grid.RowDefinitions><RowDefinition Height="Auto" MinHeight="72"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
       <Border Grid.Row="0" Background="White" BorderBrush="#D5EAF2" BorderThickness="0,0,0,1" Padding="18,14">
         <Grid x:Name="HeaderLayout" FlowDirection="RightToLeft">
+          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" MinWidth="0"/>
             <ColumnDefinition Width="Auto"/>
           </Grid.ColumnDefinitions>
-          <TextBlock x:Name="SectionTitle" Grid.Column="0" FontSize="22" FontWeight="Bold"
+          <Button x:Name="NavigationToggle" Grid.Row="0" Grid.Column="0" Content="☰ القائمة"
+                  HorizontalAlignment="Right" MinWidth="112" MinHeight="35" Margin="0,0,0,4"
+                  Padding="9,6" Click="NavigationToggle_Click"
+                  AutomationProperties.Name="إظهار أو إخفاء قائمة التنقل" />
+          <TextBlock x:Name="SectionTitle" Grid.Row="1" Grid.Column="0" FontSize="20" FontWeight="Bold"
                      VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"/>
-          <TextBlock x:Name="YearText" Grid.Column="1" Foreground="#0B7198"
+          <TextBlock x:Name="YearText" Grid.Row="0" Grid.RowSpan="2" Grid.Column="1" Foreground="#0B7198"
                      MaxWidth="230" TextWrapping="Wrap" TextAlignment="Left"
                      VerticalAlignment="Center" FontWeight="Bold"/>
         </Grid>
       </Border>
       <ScrollViewer x:Name="ContentScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
-        <ContentControl x:Name="ContentHost" Margin="16,14"/>
+        <ContentControl x:Name="ContentHost" Margin="12,12"/>
       </ScrollViewer>
+      <Border Grid.Row="2" BorderBrush="#BDD9E3" BorderThickness="0,1,0,0"
+              Background="White" Padding="12,6">
+        <TextBlock x:Name="StatusMessage" Visibility="Collapsed" FontSize="13"
+                   Foreground="#065D67" FontFamily="Arial" FontWeight="Bold"
+                   TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"
+                   AutomationProperties.Name="نتيجة العملية الحالية"/>
+      </Border>
     </Grid>
   </Grid>
 </Window>

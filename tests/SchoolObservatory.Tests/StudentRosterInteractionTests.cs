@@ -66,7 +66,12 @@ public sealed class StudentRosterInteractionTests
         Assert.Contains("new FlowDocument", source, StringComparison.Ordinal);
         Assert.Contains("PrintDocument(", source, StringComparison.Ordinal);
         Assert.Contains("العام الدراسي", source, StringComparison.Ordinal);
-        Assert.Contains("printRoster.IsEnabled = editor.IsEnabled", source, StringComparison.Ordinal);
+        Assert.Contains("printRoster.IsEnabled = canManage;", source, StringComparison.Ordinal);
+        Assert.Contains("exportRoster.IsEnabled = canManage;", source, StringComparison.Ordinal);
+        Assert.Contains("printRoster.Visibility = canManage ? Visibility.Visible : Visibility.Collapsed;",
+            source, StringComparison.Ordinal);
+        Assert.Contains("exportRoster.Visibility = canManage ? Visibility.Visible : Visibility.Collapsed;",
+            source, StringComparison.Ordinal);
     }
 
     [Fact]

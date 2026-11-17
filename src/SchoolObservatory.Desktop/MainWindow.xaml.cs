@@ -1,4 +1,8 @@
 using System.Collections.ObjectModel;
+using System.Windows.Automation;
+using SchoolObservatory.Desktop.Services;
+using SchoolObservatory.Desktop.ViewModels;
+using SchoolObservatory.Desktop.Views;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -17,6 +21,10 @@ public partial class MainWindow : Window
     public bool LogoutRequested { get; private set; }
     private readonly SqliteStore _store;
     private readonly UserAccount _actor;
+    private readonly NavigationContext _navigationContext = new();
+    private bool _sidebarUserOverride;
+    private bool _sidebarExpanded = true;
+    private bool _lastCompact;
     private readonly Brush _primary = new SolidColorBrush(Color.FromRgb(0, 148, 177));
     private readonly Brush _neutral = new SolidColorBrush(Color.FromRgb(236, 243, 251));
     private readonly Brush _muted = new SolidColorBrush(Color.FromRgb(89, 111, 139));
@@ -24,7 +32,8 @@ public partial class MainWindow : Window
     public MainWindow(SqliteStore store, UserAccount actor)
     {
         InitializeComponent();
-        Loaded += (_, _) => WindowLayout.FitToWorkArea(this);
+        Loaded += (_, _) => { WindowLayout.FitToWorkArea(this); ApplySidebarLayout(); };
+        SizeChanged += (_, _) => ApplySidebarLayout();
         _store = store;
         _actor = actor;
         AccountText.Text = $"{actor.Username}  |  {(actor.IsOwner ? "المسؤول المؤسس" : RoleName(actor.Role))}";
@@ -32,7 +41,8 @@ public partial class MainWindow : Window
         AddNav("لوحة التحكم", ShowDashboard);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewSchools))
             AddNav("الأعوام الدراسية والأرشيف", ShowAcademicYears);
-        AddNav("دليل المدارس", ShowSchools);
+        if (AccessPolicy.Has(actor, PermissionFlags.ViewSchools))
+            AddNav("دليل المدارس", ShowSchools);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewStaff))
             AddNav("كادر المدارس والسجلات", ShowStaff);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewStudents))
@@ -90,6 +100,7 @@ public partial class MainWindow : Window
         };
         var button = new Button
         {
+            Style = (Style)Application.Current.FindResource("NavigationButton"),
             Content = new TextBlock
             {
                 Text = text, TextWrapping = TextWrapping.Wrap,
@@ -109,7 +120,16 @@ public partial class MainWindow : Window
             ToolTip = text
         };
         _navBaseColors[button] = button.Background;
-        button.Click += (_, _) => Safe(action);
+        button.Click += (_, _) =>
+        {
+            Safe(action);
+            if (ResponsiveSizing.ShouldCollapseSidebar(ActualWidth))
+            {
+                _sidebarUserOverride = true;
+                _sidebarExpanded = false;
+                ApplySidebarLayout();
+            }
+        };
         NavPanel.Children.Add(button);
     }
 
@@ -142,8 +162,39 @@ public partial class MainWindow : Window
         }
     }
 
+
+    private void NavigationToggle_Click(object sender, RoutedEventArgs e)
+    {
+        _sidebarUserOverride = true;
+        _sidebarExpanded = SidebarPanel.Visibility != Visibility.Visible;
+        ApplySidebarLayout();
+    }
+
+    private void ApplySidebarLayout()
+    {
+        if (!IsLoaded || ActualWidth <= 0) return;
+        var compact = ResponsiveSizing.ShouldCollapseSidebar(ActualWidth);
+        if (_lastCompact != compact)
+        {
+            _sidebarUserOverride = false;
+            _lastCompact = compact;
+        }
+        var visible = _sidebarUserOverride ? _sidebarExpanded : !compact;
+        SidebarPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        SidebarColumn.Width = new GridLength(visible
+            ? compact ? Math.Clamp(ActualWidth * 0.29, 145, 205)
+                      : ResponsiveSizing.SidebarWidth(ActualWidth)
+            : 0);
+        NavigationToggle.Content = visible ? "☰ إخفاء القائمة" : "☰ إظهار القائمة";
+    }
+
     private void Display(string title, UIElement body)
     {
+        if (!string.Equals(SectionTitle.Text, title, StringComparison.Ordinal))
+        {
+            StatusMessage.Text = "";
+            StatusMessage.Visibility = Visibility.Collapsed;
+        }
         SectionTitle.Text = title;
         ContentHost.Content = body;
         // Opening a different page or profile should start at its heading, not at
@@ -204,6 +255,7 @@ public partial class MainWindow : Window
             BorderBrush = new SolidColorBrush(Color.FromRgb(7, 91, 126)),
             MinHeight = 42
         };
+        AutomationProperties.SetName(btn, title);
         btn.Click += click;
         return btn;
     }
@@ -269,115 +321,67 @@ public partial class MainWindow : Window
         return grid;
     }
 
+
+    /// <summary>Text is visible and announced even when the grid has no matching records.</summary>
+    private static Grid TableSurface(DataGrid grid, string emptyMessage = "لا توجد سجلات تطابق الاختيارات الحالية.")
+    {
+        var surface = new Grid();
+        surface.Children.Add(grid);
+        var note = new TextBlock
+        {
+            Text = emptyMessage, FontFamily = new FontFamily("Arial"),
+            FontWeight = FontWeights.Bold,
+            IsHitTestVisible = false,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            MaxWidth = 460,
+            Style = (Style)Application.Current.FindResource("ProfessionalEmptyState")
+        };
+        AutomationProperties.SetName(note, emptyMessage);
+        void UpdateEmpty() =>
+            note.Visibility = grid.HasItems ? Visibility.Collapsed : Visibility.Visible;
+        grid.Loaded += (_, _) => UpdateEmpty();
+        ((System.Collections.Specialized.INotifyCollectionChanged)grid.Items)
+            .CollectionChanged += (_, _) => UpdateEmpty();
+        surface.Children.Add(note);
+        UpdateEmpty();
+        return surface;
+    }
+
     private void Safe(Action action)
     {
         try { action(); }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "المرصد المدرسي — تنبيه", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ShowStatus(ex.Message, isError: true);
         }
     }
 
-    private static void Info(string text) => MessageBox.Show(text, "المرصد المدرسي", MessageBoxButton.OK, MessageBoxImage.Information);
+    private void ShowStatus(string message, bool isError = false)
+    {
+        StatusMessage.Text = message;
+        StatusMessage.Foreground = new SolidColorBrush(isError
+            ? Color.FromRgb(161, 30, 53) : Color.FromRgb(6, 93, 103));
+        StatusMessage.Visibility = Visibility.Visible;
+    }
+
+    private void Info(string text) => ShowStatus(text);
     private void Logout_Click(object sender, RoutedEventArgs e)
     {
         LogoutRequested = true;
         Close();
     }
 
-    private static Border DashboardCard(string caption, int value, Color accent)
-    {
-        var group = Stack();
-        group.Children.Add(new TextBlock
-        {
-            Text = caption, FontFamily = new FontFamily("Arial"), FontWeight = FontWeights.Bold,
-            FontSize = 15, Foreground = new SolidColorBrush(Color.FromRgb(56, 75, 97)),
-            TextWrapping = TextWrapping.Wrap, MinHeight = 37
-        });
-        group.Children.Add(new TextBlock
-        {
-            Text = value.ToString("N0", CultureInfo.CurrentCulture),
-            FontFamily = new FontFamily("Arial"), FontSize = 29, FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(accent), Margin = new Thickness(0, 6, 0, 0)
-        });
-        return new Border
-        {
-            Child = group, Background = Brushes.White, CornerRadius = new CornerRadius(12),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(197, 222, 231)),
-            BorderThickness = new Thickness(1, 1, 1, 3),
-            Padding = new Thickness(15, 12, 15, 12),
-            Width = 223, MinHeight = 113, Margin = new Thickness(0, 0, 10, 10)
-        };
-    }
-
+    /// <summary>Phase 5 incrementally moves the dashboard to an async View/ViewModel/service.</summary>
     private void ShowDashboard()
     {
-        var data = _store.GetDashboard(_actor);
-        var live = _store.GetLiveDirectoryTotals(_actor);
-        var root = Stack();
-        root.Children.Add(Label($"مرصد مدارس { _store.DistrictName }", 21, true));
-        root.Children.Add(Label(
-            "ملخص واحد للبيانات الحالية. الأعداد التشغيلية ترتبط بكشوف المدارس مباشرة، أما الإحصاء المعتمد فيخضع للمراجعة.", 14));
-
-        root.Children.Add(Label("البيانات المدرسية الحالية", 18, true));
-        var cards = new WrapPanel { Margin = new Thickness(0, 8, 0, 14) };
-        var values = new List<(string Title, int Value, Color Accent)>
-        {
-            ("المدارس النشطة", live.Schools, Color.FromRgb(8, 111, 151)),
-            ("مجالس الآباء والأمهات", live.CouncilMembers, Color.FromRgb(119, 77, 165))
-        };
-        if (live.StudentsVisible)
-        {
-            values.Add(("الطلاب النشطون", live.ActiveStudents, Color.FromRgb(16, 131, 106)));
-            values.Add(("الشعب الدراسية المسجلة", live.Sections, Color.FromRgb(24, 117, 169)));
-        }
-        if (live.StaffVisible)
-        {
-            values.Add(("المعلمون في الكشوف", live.ActiveTeachers, Color.FromRgb(19, 117, 151)));
-            values.Add(("الإداريون في الكشوف", live.ActiveAdministrators, Color.FromRgb(143, 101, 37)));
-            values.Add(("الأخصائيون الاجتماعيون", live.ActiveSpecialists, Color.FromRgb(122, 78, 163)));
-        }
-        foreach (var (title, value, accent) in values)
-            cards.Children.Add(DashboardCard(title, value, accent));
-        root.Children.Add(cards);
-
-        if (live.StaffVisible)
-        {
-            var staffing = Stack();
-            staffing.Children.Add(Label("التوزيع الوظيفي حسب حالة العمل المسجلة", 16, true));
-            staffing.Children.Add(Label(
-                $"مباشر: {live.DirectStaff:N0}   |   منتدب/مكلف/معار: {live.SecondedStaff:N0}   |   إجازة أو حالة غير محددة: {live.UnclassifiedStaff:N0}", 15));
-            staffing.Children.Add(Label(
-                "هذا توزيع الكادر نفسه وليس إضافة أعداد جديدة إلى الإجمالي؛ الموظف المنتدب يظل في كشوف مدرسته.", 13));
-            root.Children.Add(Box(staffing, new Thickness(13)));
-        }
-        if (live.StaffVisible && _actor.Role is not (Roles.Entry or Roles.Principal) &&
-            live.DuplicateEmployeeCodes > 0)
-            root.Children.Add(Box(Label(
-                $"تنبيه جودة البيانات: توجد {live.DuplicateEmployeeCodes} أرقام وظيفية مرتبطة بأكثر من مدرسة. افتح كادر المدارس لتصحيحها دون فقد السجلات.", 15, true)));
-
-        root.Children.Add(Label("حالة الاعتماد الرسمي", 18, true));
-        var approvalCards = new WrapPanel { Margin = new Thickness(0, 8, 0, 12) };
-        approvalCards.Children.Add(DashboardCard("الإحصاء المعتمد", data.Approved,
-            Color.FromRgb(15, 126, 92)));
-        approvalCards.Children.Add(DashboardCard("الاستمارات قيد المراجعة", data.Submitted,
-            Color.FromRgb(168, 111, 32)));
-        root.Children.Add(approvalCards);
-        root.Children.Add(Label(
-            "إجماليات الطلاب والمعلمين والفصول في الإحصاء الرسمي تظهر في التقارير المعتمدة، ولا تتكرر هنا.", 13));
-
-        var actions = new WrapPanel { Margin = new Thickness(0, 6, 0, 8) };
-        actions.Children.Add(Btn("تحديث المؤشرات", (_, _) => ShowDashboard(), tone: "secondary"));
-        if (AccessPolicy.Has(_actor, PermissionFlags.ViewReports))
-            actions.Children.Add(Btn("فتح التقارير المعتمدة", (_, _) => ShowReports(), tone: "primary"));
-        if (AccessPolicy.Has(_actor, PermissionFlags.ViewReports) &&
-            AccessPolicy.Has(_actor, PermissionFlags.ViewStudents) &&
-            AccessPolicy.Has(_actor, PermissionFlags.ViewStaff))
-            actions.Children.Add(Btn("مطابقة السجلات مع الإحصاء", (_, _) => ShowReconciliation(), tone: "secondary"));
-        root.Children.Add(actions);
-        root.Children.Add(Label(
-            "الحفظ محلي ومشفر. تتغير المؤشرات التشغيلية مباشرة من السجلات؛ الإحصاء الرسمي المعتمد يحتفظ بتاريخ اعتماده.", 13));
-        Display("لوحة التحكم", root);
+        var model = new DashboardViewModel(new DashboardService(_store, _actor));
+        var view = new DashboardView { DataContext = model };
+        view.RefreshRequested += async (_, _) => await model.LoadAsync();
+        view.ReportsRequested += (_, _) => Safe(ShowReports);
+        view.ReconciliationRequested += (_, _) => Safe(ShowReconciliation);
+        Display("لوحة التحكم", view);
+        _ = model.LoadAsync();
     }
 
     // Ignore headers, scrollbars, empty backgrounds and other non-row double-clicks.
@@ -395,18 +399,21 @@ public partial class MainWindow : Window
         var data = _store.GetSchools(_actor);
         root.Children.Add(Label($"عدد المدارس الظاهرة: {data.Count} — حسب الصلاحيات المحددة لحسابك", 15));
         School? selected = null;
-        var schoolSearch = Field(width: 335);
+        Action? restoreSchoolDraft = null;
+        var schoolSearch = Field(_navigationContext.Get("schools.search"), width: 335);
         schoolSearch.ToolTip = "ابحث برمز المدرسة أو اسمها أو المنطقة أو المرحلة";
         root.Children.Add(Box(LineOfFields(("بحث سريع في دليل المدارس", schoolSearch))));
         var grid = GridFor(data,
             ("الرمز", "Code", false), ("المدرسة", "Name", false), ("المنطقة", "Zone", false),
             ("الملكية", "Ownership", false), ("النوع", "Gender", false),
             ("المرحلة", "Stage", false), ("نشطة", "IsActive", false));
-        root.Children.Add(Box(grid));
+        root.Children.Add(Box(TableSurface(grid, "لم يتم العثور على مدارس مطابقة. غيّر عبارة البحث.")));
+        grid.ItemsSource = DirectorySearch.FindSchools(data, schoolSearch.Text);
         schoolSearch.TextChanged += (_, _) =>
         {
             selected = null;
             grid.SelectedItem = null;
+            _navigationContext.Set("schools.search", schoolSearch.Text);
             grid.ItemsSource = DirectorySearch.FindSchools(data, schoolSearch.Text);
         };
         root.Children.Add(Label("انقر مرتين على اسم المدرسة لفتح ملفها الكامل، أو حددها ثم اضغط زر فتح الملف.", 13));
@@ -441,33 +448,116 @@ public partial class MainWindow : Window
             }
             form.Children.Add(fields);
             form.Children.Add(active);
+            var validation = new InlineValidationPresenter();
+            form.Children.Add(validation.Message);
+            var editors = new Dictionary<string, Control>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["code"] = code, ["name"] = name, ["zone"] = zone,
+                ["ownership"] = ownership, ["stage"] = stage, ["gender"] = gender
+            };
+            bool ValidateSchoolForm() =>
+                validation.Show(SchoolFormValidator.Validate(code.Text, name.Text, zone.Text,
+                    ownership.SelectedItem?.ToString(), stage.SelectedItem?.ToString(),
+                    gender.SelectedItem?.ToString()), editors);
+
+            // Restore only non-secret, in-memory school form values after restoring the
+            // selected record. Database writes still require the explicit Save button.
+            var hadDraft = _navigationContext.Get("schools.draft.exists") == "1";
+            var draftCode = _navigationContext.Get("schools.draft.code");
+            var draftName = _navigationContext.Get("schools.draft.name");
+            var draftZone = _navigationContext.Get("schools.draft.zone");
+            var draftOwnership = _navigationContext.Get("schools.draft.ownership");
+            var draftStage = _navigationContext.Get("schools.draft.stage");
+            var draftGender = _navigationContext.Get("schools.draft.gender");
+            var draftActive = _navigationContext.Get("schools.draft.active");
+            void SaveSchoolDraft()
+            {
+                _navigationContext.Set("schools.draft.exists", "1");
+                _navigationContext.Set("schools.draft.code", code.Text);
+                _navigationContext.Set("schools.draft.name", name.Text);
+                _navigationContext.Set("schools.draft.zone", zone.Text);
+                _navigationContext.Set("schools.draft.ownership",
+                    ownership.SelectedItem?.ToString());
+                _navigationContext.Set("schools.draft.stage", stage.SelectedItem?.ToString());
+                _navigationContext.Set("schools.draft.gender", gender.SelectedItem?.ToString());
+                _navigationContext.Set("schools.draft.active", active.IsChecked == true ? "1" : "0");
+            }
+            void ClearPersistedSchoolDraft()
+            {
+                foreach (var key in new[] { "exists", "code", "name", "zone",
+                    "ownership", "stage", "gender", "active" })
+                    _navigationContext.Clear("schools.draft." + key);
+            }
+            restoreSchoolDraft = () =>
+            {
+                if (!hadDraft) return;
+                code.Text = draftCode;
+                name.Text = draftName;
+                zone.Text = draftZone;
+                ownership.SelectedItem = draftOwnership;
+                stage.SelectedItem = draftStage;
+                gender.SelectedItem = draftGender;
+                active.IsChecked = draftActive == "1";
+            };
+            code.TextChanged += (_, _) => SaveSchoolDraft();
+            name.TextChanged += (_, _) => SaveSchoolDraft();
+            zone.TextChanged += (_, _) => SaveSchoolDraft();
+            ownership.SelectionChanged += (_, _) => SaveSchoolDraft();
+            stage.SelectionChanged += (_, _) => SaveSchoolDraft();
+            gender.SelectionChanged += (_, _) => SaveSchoolDraft();
+            active.Checked += (_, _) => SaveSchoolDraft();
+            active.Unchecked += (_, _) => SaveSchoolDraft();
             grid.SelectionChanged += (_, _) =>
             {
                 selected = grid.SelectedItem as School;
                 if (selected is null) return;
+                _navigationContext.Set("schools.selected", selected.Id);
+                validation.Clear();
                 code.Text = selected.Code; name.Text = selected.Name; zone.Text = selected.Zone;
                 ownership.SelectedItem = selected.Ownership; stage.SelectedItem = selected.Stage;
                 gender.SelectedItem = selected.Gender;
                 active.IsChecked = selected.IsActive;
             };
             var buttons = new WrapPanel();
-            buttons.Children.Add(Btn("إضافة مدرسة جديدة", (_, _) => Safe(() =>
+            buttons.Children.Add(Btn("إضافة مدرسة جديدة", (_, _) =>
             {
-                _store.AddSchool(_actor, code.Text, name.Text, zone.Text, ownership.SelectedItem?.ToString() ?? "", stage.SelectedItem?.ToString() ?? "", gender.SelectedItem?.ToString() ?? "مختلطة");
-                Info("تمت إضافة المدرسة."); ShowSchools();
-            })));
-            buttons.Children.Add(Btn("حفظ تعديل المدرسة المحددة", (_, _) => Safe(() =>
-            {
-                if (selected is null) throw new InvalidOperationException("حدد المدرسة المطلوب تعديلها من الجدول.");
-                _store.UpdateSchool(_actor, selected with
+                if (!ValidateSchoolForm()) return;
+                try
                 {
-                    Code = code.Text, Name = name.Text, Zone = zone.Text,
-                    Ownership = ownership.SelectedItem?.ToString() ?? "",
-                    Stage = stage.SelectedItem?.ToString() ?? "", Gender = gender.SelectedItem?.ToString() ?? "مختلطة",
-                    IsActive = active.IsChecked == true
-                });
-                Info("تم حفظ بيانات المدرسة."); ShowSchools();
-            })));
+                    _store.AddSchool(_actor, code.Text, name.Text, zone.Text,
+                        ownership.SelectedItem?.ToString() ?? "",
+                        stage.SelectedItem?.ToString() ?? "",
+                        gender.SelectedItem?.ToString() ?? "مختلطة");
+                    ClearPersistedSchoolDraft();
+                    _navigationContext.Clear("schools.selected");
+                    Info("تمت إضافة المدرسة."); ShowSchools();
+                }
+                catch (Exception ex) { validation.ShowError(ex.Message); }
+            }));
+            buttons.Children.Add(Btn("حفظ تعديل المدرسة المحددة", (_, _) =>
+            {
+                if (selected is null)
+                {
+                    validation.ShowError("حدد المدرسة المطلوب تعديلها من الجدول.");
+                    return;
+                }
+                if (!ValidateSchoolForm()) return;
+                try
+                {
+                    _store.UpdateSchool(_actor, selected with
+                    {
+                        Code = code.Text, Name = name.Text, Zone = zone.Text,
+                        Ownership = ownership.SelectedItem?.ToString() ?? "",
+                        Stage = stage.SelectedItem?.ToString() ?? "",
+                        Gender = gender.SelectedItem?.ToString() ?? "مختلطة",
+                        IsActive = active.IsChecked == true
+                    });
+                    ClearPersistedSchoolDraft();
+                    _navigationContext.Clear("schools.selected");
+                    Info("تم حفظ بيانات المدرسة."); ShowSchools();
+                }
+                catch (Exception ex) { validation.ShowError(ex.Message); }
+            }));
             if (_actor.IsOwner)
                 buttons.Children.Add(Btn("حذف نهائي لمدرسة مؤرشفة وخالية فقط",(_,_)=>Safe(()=>
                 {
@@ -482,6 +572,8 @@ public partial class MainWindow : Window
                         "حذف نهائي — للمسؤول المؤسس فقط",MessageBoxButton.YesNo,
                         MessageBoxImage.Stop)!=MessageBoxResult.Yes)return;
                     _store.DeleteEmptySchool(_actor,selected.Id,code.Text.Trim());
+                    ClearPersistedSchoolDraft();
+                    _navigationContext.Clear("schools.selected");
                     Info("حُذفت المدرسة الخالية بعد فحص جميع المراجع.");
                     ShowSchools();
                 }),tone:"danger"));
@@ -489,9 +581,11 @@ public partial class MainWindow : Window
                 (_,_) => ShowImportWizard(ImportEntity.Schools),tone:"secondary"));
             buttons.Children.Add(Btn("مسح الحقول", (_, _) =>
             {
-                selected = null; grid.SelectedItem = null; code.Text = ""; name.Text = "";
+                selected = null; grid.SelectedItem = null; _navigationContext.Clear("schools.selected");
+                validation.Clear(); code.Text = ""; name.Text = "";
                 zone.Text = ""; active.IsChecked = true;
                 ownership.SelectedIndex = 0; stage.SelectedIndex = 0; gender.SelectedIndex = 2;
+                ClearPersistedSchoolDraft();
             }));
             form.Children.Add(buttons);
             root.Children.Add(Box(form));
@@ -519,6 +613,12 @@ public partial class MainWindow : Window
             })));
             root.Children.Add(Box(form));
         }
+        // Preserve the chosen record when navigating to a profile and back.
+        var selectedId = _navigationContext.Get("schools.selected");
+        if (selectedId.Length > 0)
+            grid.SelectedItem = (grid.ItemsSource as IEnumerable<School>)?
+                .FirstOrDefault(x => x.Id == selectedId);
+        restoreSchoolDraft?.Invoke();
         Display("دليل المدارس", root);
     }
 
@@ -538,7 +638,7 @@ public partial class MainWindow : Window
         var unified = Stack();
         unified.Children.Add(Label("دليل الكادر الوظيفي الموحد — جميع المدارس المصرح لك بها", 18, true));
         unified.Children.Add(Label("المدرسة التي يتبعها الموظف مستقلة عن جهة عمله الفعلية؛ انقر مرتين لفتح ملفه.", 14));
-        var districtSearch = Field(width: 350);
+        var districtSearch = Field(_navigationContext.Get("staff.search"), width: 350);
         districtSearch.ToolTip = "ابحث بالاسم أو الرقم أو المدرسة أو الجهة المنتدب إليها";
         unified.Children.Add(LineOfFields(("بحث الكادر على مستوى المديرية", districtSearch)));
         var districtGrid = GridFor(districtPeople,
@@ -552,16 +652,22 @@ public partial class MainWindow : Window
             ("جهة العمل الفعلية", "EffectiveWorkplace", false),
             ("القيد", "ActiveLabel", false));
         districtGrid.MaxHeight = 370;
+        districtGrid.ItemsSource = DirectorySearch.FindDistrictStaff(
+            districtPeople, districtSearch.Text);
         districtSearch.TextChanged += (_, _) =>
+        {
+            _navigationContext.Set("staff.search", districtSearch.Text);
             districtGrid.ItemsSource = DirectorySearch.FindDistrictStaff(
                 districtPeople, districtSearch.Text);
+        };
         districtGrid.MouseDoubleClick += (_, e) =>
         {
             if (IsDoubleClickOnGridRow(e.OriginalSource, districtGrid) &&
                 districtGrid.SelectedItem is DistrictStaffDirectoryRow selectedPerson)
                 Safe(() => ShowStaffProfile(selectedPerson.SchoolId, selectedPerson.StaffId));
         };
-        unified.Children.Add(districtGrid);
+        unified.Children.Add(TableSurface(districtGrid,
+            "لا يوجد موظفون يطابقون البحث في الدليل الموحد."));
         unified.Children.Add(Btn("فتح الملف الوظيفي المحدد", (_, _) => Safe(() =>
         {
             if (districtGrid.SelectedItem is not DistrictStaffDirectoryRow selectedPerson)
@@ -608,8 +714,9 @@ public partial class MainWindow : Window
             ("الجنس", "Gender", false),
             ("نشط", "IsActive", false));
         staffGrid.MaxHeight = 370;
-        root.Children.Add(Box(staffGrid));
-        var staffSearch = Field(width: 340);
+        root.Children.Add(Box(TableSurface(staffGrid,
+            "لا توجد سجلات كادر مطابقة في المدرسة المختارة.")));
+        var staffSearch = Field(_navigationContext.Get("staff.local-search"), width: 340);
         staffSearch.ToolTip = "ابحث بالاسم أو الرقم الوظيفي أو التخصص أو المؤهل";
         root.Children.Add(Box(LineOfFields(("بحث سريع في كشف الكادر", staffSearch))));
         IReadOnlyList<SchoolStaff> staffCache = Array.Empty<SchoolStaff>();
@@ -665,6 +772,13 @@ public partial class MainWindow : Window
         }
         editor.Children.Add(fields);
         editor.Children.Add(active);
+        var validation = new InlineValidationPresenter();
+        editor.Children.Add(validation.Message);
+        var staffFields = new Dictionary<string, Control>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["employee_code"] = employeeCode, ["full_name"] = fullName,
+            ["category"] = category, ["gender"] = gender
+        };
         SchoolStaff? selected = null;
 
         void Clear()
@@ -674,6 +788,7 @@ public partial class MainWindow : Window
             employeeCode.Text = ""; fullName.Text = ""; job.Text = "";
             specialization.Text = ""; qualification.Text = "";
             category.SelectedIndex = 0; gender.SelectedIndex = 2; active.IsChecked = true;
+            validation.Clear();
         }
 
         staffGrid.SelectionChanged += (_, _) =>
@@ -696,30 +811,47 @@ public partial class MainWindow : Window
             if (schoolBox.SelectedItem is not School school) return;
             staffCache = _store.GetSchoolStaff(_actor, school.Id);
             staffGrid.ItemsSource = DirectorySearch.FindStaff(staffCache, staffSearch.Text);
-            editor.IsEnabled = AccessPolicy.CanEditStaff(_actor, school.Id);
+            editor.Visibility = AccessPolicy.CanEditStaff(_actor, school.Id)
+                ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        schoolBox.SelectionChanged += (_, _) => Safe(Refresh);
+        schoolBox.SelectionChanged += (_, _) =>
+        {
+            if (schoolBox.SelectedItem is School school)
+                _navigationContext.Set("staff.school", school.Id);
+            Safe(Refresh);
+        };
         staffSearch.TextChanged += (_, _) =>
         {
+            _navigationContext.Set("staff.local-search", staffSearch.Text);
             Clear();
             staffGrid.ItemsSource = DirectorySearch.FindStaff(staffCache, staffSearch.Text);
         };
 
         var actions = new WrapPanel();
         actions.Children.Add(Btn("سجل جديد", (_, _) => Clear()));
-        actions.Children.Add(Btn("حفظ الموظف", (_, _) => Safe(() =>
+        actions.Children.Add(Btn("حفظ الموظف", (_, _) =>
         {
             if (schoolBox.SelectedItem is not School school)
-                throw new InvalidOperationException("حدد المدرسة أولا.");
-            var staff = new SchoolStaff(selected?.Id ?? "", school.Id, employeeCode.Text,
-                fullName.Text, category.SelectedItem?.ToString() ?? "", job.Text,
-                specialization.Text, qualification.Text,
-                gender.SelectedItem?.ToString() ?? "غير محدد", active.IsChecked == true);
-            _store.SaveSchoolStaff(_actor, staff);
-            Info("تم حفظ سجل الموظف وتحديث كشف المدرسة والدليل الموحد.");
-            ShowStaffCore(school.Id);
-        })));
+            {
+                validation.ShowError("حدد المدرسة أولا.");
+                return;
+            }
+            if (!validation.Show(StaffFormValidator.Validate(employeeCode.Text, fullName.Text,
+                    category.SelectedItem?.ToString(), gender.SelectedItem?.ToString()),
+                    staffFields)) return;
+            try
+            {
+                var staff = new SchoolStaff(selected?.Id ?? "", school.Id, employeeCode.Text,
+                    fullName.Text, category.SelectedItem?.ToString() ?? "", job.Text,
+                    specialization.Text, qualification.Text,
+                    gender.SelectedItem?.ToString() ?? "غير محدد", active.IsChecked == true);
+                _store.SaveSchoolStaff(_actor, staff);
+                Info("تم حفظ سجل الموظف وتحديث كشف المدرسة والدليل الموحد.");
+                ShowStaffCore(school.Id);
+            }
+            catch (Exception ex) { validation.ShowError(ex.Message); }
+        }));
         actions.Children.Add(Btn("حذف الموظف من الكشوف (أرشفة)", (_, _) => Safe(() =>
         {
             if (selected is null) throw new InvalidOperationException("حدد الموظف من كشف الكادر أولا.");
@@ -747,12 +879,14 @@ public partial class MainWindow : Window
         schoolBox.SelectionChanged += (_, _) =>
         {
             if (schoolBox.SelectedItem is School school)
-                importPanel.IsEnabled = AccessPolicy.CanEditStaff(_actor, school.Id);
+                importPanel.Visibility = AccessPolicy.CanEditStaff(_actor, school.Id)
+                    ? Visibility.Visible : Visibility.Collapsed;
         };
         root.Children.Add(Box(importPanel));
         root.Children.Add(Box(editor));
         Display("كادر المدارس والسجلات", root);
-        schoolBox.SelectedItem = schools.FirstOrDefault(s => s.Id == preferredSchoolId) ?? schools[0];
+        schoolBox.SelectedItem = schools.FirstOrDefault(s => s.Id ==
+            (preferredSchoolId ?? _navigationContext.Get("staff.school"))) ?? schools[0];
     }
 
     private sealed class EnrollmentInput
@@ -861,7 +995,8 @@ public partial class MainWindow : Window
         roomsHint.Foreground = new SolidColorBrush(Color.FromRgb(26, 111, 127));
         form.Children.Add(roomsHint);
         var assist = new WrapPanel { Margin = new Thickness(0, 5, 0, 10) };
-        assist.Children.Add(Btn("تعبئة عدد الشعب من كشوف المدرسة", (_, _) => ValidateCensus(() =>
+        if (editable && canReadRosters)
+            assist.Children.Add(Btn("تعبئة عدد الشعب من كشوف المدرسة", (_, _) => ValidateCensus(() =>
         {
             if (combo.SelectedItem is not School selected) return;
             var sections = _store.GetSchoolGrades(_actor, selected.Id);
@@ -874,7 +1009,8 @@ public partial class MainWindow : Window
             rooms.Text = count.ToString(CultureInfo.InvariantCulture);
             roomsHint.Text = $"تم اقتراح {count} فصلا من كشوف الصفوف والشعب. راجع العدد قبل حفظ المسودة؛ لم تتغير الاستمارة الرسمية بعد.";
         }), editable && canReadRosters, "secondary"));
-        assist.Children.Add(Btn("تعبئة أعداد الطلاب من الكشوف الحالية", (_, _) => ValidateCensus(() =>
+        if (editable && canReadRosters)
+            assist.Children.Add(Btn("تعبئة أعداد الطلاب من الكشوف الحالية", (_, _) => ValidateCensus(() =>
         {
             if (combo.SelectedItem is not School selected) return;
             var suggested = CensusNumberInput.SuggestGradeTotals(
@@ -898,7 +1034,7 @@ public partial class MainWindow : Window
             table.Items.Refresh();
             roomsHint.Text = "تمت تعبئة أعداد الطلاب النشطين في الصفوف ذات السجلات؛ راجعها ثم احفظ المسودة للمراجعة الرسمية.";
         }), editable && canReadRosters, "secondary"));
-        form.Children.Add(assist);
+        if (editable && canReadRosters) form.Children.Add(assist);
 
         form.Children.Add(Label("3. ملاحظات المدرسة", 17, true));
         var notes = new TextBox
@@ -910,7 +1046,8 @@ public partial class MainWindow : Window
         form.Children.Add(notes);
 
         var actions = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
-        actions.Children.Add(Btn("حفظ المسودة", (_, _) => ValidateCensus(() =>
+        if (editable)
+            actions.Children.Add(Btn("حفظ المسودة", (_, _) => ValidateCensus(() =>
         {
             if (combo.SelectedItem is not School selected) return;
             table.CommitEdit(DataGridEditingUnit.Cell, true);
@@ -935,7 +1072,8 @@ public partial class MainWindow : Window
                 ? "تم حفظ البيانات بنجاح."
                 : $"تم حفظ المسودة بنجاح — المراجعة {latest.Revision}. يمكن الآن رفعها للمراجعة.";
         }), editable, "success"));
-        actions.Children.Add(Btn("رفع المسودة للمراجعة", (_, _) => ValidateCensus(() =>
+        if (editable)
+            actions.Children.Add(Btn("رفع المسودة للمراجعة", (_, _) => ValidateCensus(() =>
         {
             if (combo.SelectedItem is not School selected) return;
             var latest = _store.GetLatestSubmission(_actor, selected.Id)
@@ -943,7 +1081,7 @@ public partial class MainWindow : Window
             _store.ChangeStatus(_actor, latest.Id, "submit");
             ShowCensusCore(selected.Id);
         }), editable, "warning"));
-        form.Children.Add(actions);
+        if (editable) form.Children.Add(actions);
         root.Children.Add(Box(form));
 
         combo.SelectionChanged += (_, _) =>
@@ -1013,29 +1151,41 @@ public partial class MainWindow : Window
             ("المدرسة", "SchoolName", false), ("السنة", "Year", false),
             ("المراجعة", "Revision", false), ("الحالة", "StatusArabic", false),
             ("الطلاب", "Students", false), ("المعلمون", "Teachers", false));
-        root.Children.Add(Box(grid));
+        root.Children.Add(Box(TableSurface(grid, "لا توجد سجلات مطابقة في الجدول الحالي.")));
         var actions = Stack();
         actions.Children.Add(Label("حدد استمارة، ثم اختر الإجراء المناسب لصلاحيتك:", 15, true));
         var reason = new TextBox { MinWidth = 380, HorizontalAlignment = HorizontalAlignment.Left };
         actions.Children.Add(Label("سبب الإعادة للتصحيح (إلزامي عند الإعادة)", 13));
         actions.Children.Add(reason);
+        var returnValidation = new InlineValidationPresenter();
+        actions.Children.Add(returnValidation.Message);
         void Change(string action)
         {
-            Safe(() =>
+            if (grid.SelectedItem is not ReviewLine chosen)
             {
-                if (grid.SelectedItem is not ReviewLine chosen)
-                    throw new InvalidOperationException("حدد استمارة من الجدول أولا.");
+                returnValidation.ShowError("حدد استمارة من الجدول أولا.");
+                return;
+            }
+            if (action == "return" && !returnValidation.Show(
+                    string.IsNullOrWhiteSpace(reason.Text)
+                        ? new[] { new UiValidationIssue("reason", "اكتب سبب الإعادة للتصحيح.") }
+                        : Array.Empty<UiValidationIssue>(),
+                    new Dictionary<string, Control> { ["reason"] = reason }))
+                return;
+            try
+            {
                 _store.ChangeStatus(_actor, chosen.Source.Id, action, reason.Text);
                 Info("تم تسجيل الإجراء بنجاح."); ShowReviews();
-            });
+            }
+            catch (Exception ex) { returnValidation.ShowError(ex.Message); }
         }
         var buttons = new WrapPanel();
-        buttons.Children.Add(Btn("إقرار مدير المدرسة", (_, _) => Change("school_approve"),
-            AccessPolicy.Has(_actor, PermissionFlags.ApproveSchool)));
-        buttons.Children.Add(Btn("اعتماد المديرية النهائي", (_, _) => Change("district_approve"),
-            AccessPolicy.Has(_actor, PermissionFlags.ApproveDistrict)));
-        buttons.Children.Add(Btn("إرجاع للتصحيح", (_, _) => Change("return"),
-            AccessPolicy.Has(_actor, PermissionFlags.ReviewCensus)));
+        if (AccessPolicy.Has(_actor, PermissionFlags.ApproveSchool))
+            buttons.Children.Add(Btn("إقرار مدير المدرسة", (_, _) => Change("school_approve")));
+        if (AccessPolicy.Has(_actor, PermissionFlags.ApproveDistrict))
+            buttons.Children.Add(Btn("اعتماد المديرية النهائي", (_, _) => Change("district_approve")));
+        if (AccessPolicy.Has(_actor, PermissionFlags.ReviewCensus))
+            buttons.Children.Add(Btn("إرجاع للتصحيح", (_, _) => Change("return")));
         actions.Children.Add(buttons);
         root.Children.Add(Box(actions));
         Display("المراجعة والاعتماد", root);
@@ -1059,7 +1209,7 @@ public partial class MainWindow : Window
             ("المدرسة", "SchoolName", false), ("ذكور", "Data.Boys", false),
             ("إناث", "Data.Girls", false), ("طلاب", "Data.Students", false),
             ("المعلمون", "Data.Teachers", false), ("الفصول", "Data.Classrooms", false));
-        root.Children.Add(Box(grid));
+        root.Children.Add(Box(TableSurface(grid, "لا توجد سجلات مطابقة في الجدول الحالي.")));
         root.Children.Add(Btn("تصدير التقرير إلى CSV متوافق مع إكسل", (_, _) => Safe(() =>
         {
             var dialog = new SaveFileDialog { Filter = "CSV (*.csv)|*.csv", FileName = "SchoolObservatory-Approved.csv" };
@@ -1106,7 +1256,7 @@ public partial class MainWindow : Window
             ("الحساب", "Username", false), ("الدور", "RoleDisplayName", false),
             ("المدرسة", "SchoolDisplayName", false), ("المسؤول المؤسس", "IsOwner", false),
             ("الحالة", "IsActive", false));
-        root.Children.Add(Box(grid));
+        root.Children.Add(Box(TableSurface(grid, "لا توجد سجلات مطابقة في الجدول الحالي.")));
 
         var form = Stack();
         form.Children.Add(Label("إضافة حساب جديد أو تحديد حساب من الجدول لتعديل صلاحياته", 16, true));

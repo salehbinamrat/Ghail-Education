@@ -1,0 +1,81 @@
+<UserControl x:Class="SchoolObservatory.Desktop.Views.DashboardView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FlowDirection="RightToLeft" FontFamily="Arial" FontWeight="Bold"
+             AutomationProperties.Name="لوحة التحكم الرئيسية">
+  <StackPanel>
+    <TextBlock Text="{Binding Heading}" Style="{StaticResource ProfessionalHeading}"/>
+    <TextBlock Style="{StaticResource ProfessionalHint}" TextWrapping="Wrap"
+               Text="ملخص تشغيلي من الكشوف الحالية. بيانات الاعتماد الرسمي منفصلة حتى لا يتكرر احتساب الطلاب أو الكادر."/>
+    <TextBlock Text="{Binding AcademicYear}" Style="{StaticResource ProfessionalHint}"
+               Margin="0,8,0,4"/>
+    <TextBlock Text="{Binding LoadingMessage}" Foreground="{StaticResource AccentBrush}"
+               Margin="0,8" AutomationProperties.LiveSetting="Polite"/>
+    <ProgressBar IsIndeterminate="True" Height="5"
+                 Foreground="{StaticResource AccentBrush}"
+                 Visibility="{Binding IsLoading, Converter={StaticResource BoolVisibility}}"/>
+    <TextBlock Text="{Binding ErrorMessage}" Style="{StaticResource InlineError}"
+               AutomationProperties.LiveSetting="Assertive"/>
+
+    <TextBlock Text="البيانات المدرسية الحالية" Style="{StaticResource ProfessionalHeading}"/>
+    <ItemsControl ItemsSource="{Binding Operational}">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate>
+          <Border Style="{StaticResource ProfessionalCard}" Width="208" MinHeight="105">
+            <StackPanel>
+              <TextBlock Text="{Binding Caption}" Style="{StaticResource ProfessionalHint}"
+                         MinHeight="38" AutomationProperties.IsOffscreenBehavior="Default"/>
+              <TextBlock Text="{Binding Value, StringFormat={}{0:N0}}"
+                         Foreground="{StaticResource AccentBrush}" FontSize="28"
+                         FontWeight="Bold" FontFamily="Arial"/>
+            </StackPanel>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+
+    <Border Style="{StaticResource ProfessionalCard}" Margin="0,8,0,12"
+            Visibility="{Binding HasStaffDistribution, Converter={StaticResource BoolVisibility}}">
+      <StackPanel>
+        <TextBlock Text="حالة الكادر حسب آخر تكليف مسجل" Style="{StaticResource ProfessionalHeading}"/>
+        <TextBlock Text="{Binding StaffDistribution}" TextWrapping="Wrap" FontSize="15"/>
+        <TextBlock Text="هذه حالات لنفس الموظفين وليست أعدادا إضافية."
+                   Style="{StaticResource ProfessionalHint}"/>
+      </StackPanel>
+    </Border>
+    <TextBlock Text="{Binding Warning}" Style="{StaticResource InlineError}"
+               AutomationProperties.LiveSetting="Polite"
+               Visibility="{Binding HasWarning, Converter={StaticResource BoolVisibility}}"/>
+    <TextBlock Text="حالة الاعتماد الرسمي" Style="{StaticResource ProfessionalHeading}"/>
+    <ItemsControl ItemsSource="{Binding Approvals}">
+      <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate>
+          <Border Style="{StaticResource ProfessionalCard}" Width="208" MinHeight="105">
+            <StackPanel>
+              <TextBlock Text="{Binding Caption}" Style="{StaticResource ProfessionalHint}"
+                         MinHeight="38"/>
+              <TextBlock Text="{Binding Value, StringFormat={}{0:N0}}"
+                         Foreground="{StaticResource HeadingBrush}" FontSize="28" FontWeight="Bold"/>
+            </StackPanel>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <TextBlock Text="تفاصيل الأعداد المعتمدة تظهر في التقارير، ولا تكرر في لوحة التحكم."
+               Style="{StaticResource ProfessionalHint}"/>
+    <WrapPanel Margin="0,12,0,6">
+      <Button Content="تحديث المؤشرات" Click="Refresh_Click"
+              AutomationProperties.Name="تحديث مؤشرات لوحة التحكم"/>
+      <Button Content="التقارير المعتمدة" Click="Reports_Click"
+              Visibility="{Binding CanShowReports, Converter={StaticResource BoolVisibility}}"
+              AutomationProperties.Name="فتح التقارير المعتمدة"/>
+      <Button Content="مطابقة البيانات" Click="Reconciliation_Click"
+              Visibility="{Binding CanShowReconciliation, Converter={StaticResource BoolVisibility}}"
+              AutomationProperties.Name="مطابقة بيانات المدارس مع الإحصاء"/>
+    </WrapPanel>
+  </StackPanel>
+</UserControl>

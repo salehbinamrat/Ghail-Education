@@ -75,9 +75,14 @@ public sealed class CensusClarityAndDashboardTests
         var start = code.IndexOf("private void ShowDashboard()", StringComparison.Ordinal);
         var end = code.IndexOf("private static bool IsDoubleClickOnGridRow", start, StringComparison.Ordinal);
         var dashboard = code[start..end];
-        Assert.Equal(1, CountOccurrences(dashboard, "\"المدارس النشطة\""));
-        Assert.Contains("الإحصاء المعتمد", dashboard, StringComparison.Ordinal);
-        Assert.DoesNotContain("طلاب الإحصاء المعتمد", dashboard, StringComparison.Ordinal);
+        var projection = File.ReadAllText(Path.Combine(dir.FullName,
+            "src", "SchoolObservatory.Core", "Phase5UiModels.cs"));
+        var view = File.ReadAllText(Path.Combine(dir.FullName,
+            "src", "SchoolObservatory.Desktop", "Views", "DashboardView.xaml"));
+        Assert.Contains("DashboardViewModel", dashboard, StringComparison.Ordinal);
+        Assert.Equal(1, CountOccurrences(projection, "\"المدارس النشطة\""));
+        Assert.Contains("حالة الاعتماد الرسمي", view, StringComparison.Ordinal);
+        Assert.DoesNotContain("طلاب الإحصاء المعتمد", view, StringComparison.Ordinal);
         Assert.Contains("CensusNumberInput.ParseNonNegative", code, StringComparison.Ordinal);
         Assert.Contains("الشعب الدراسية", code, StringComparison.Ordinal);
         Assert.Contains("تعبئة عدد الشعب من كشوف المدرسة", code, StringComparison.Ordinal);
