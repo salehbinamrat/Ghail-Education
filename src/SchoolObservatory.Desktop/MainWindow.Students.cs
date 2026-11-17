@@ -420,7 +420,7 @@ public partial class MainWindow
             _store.SaveStudentResult(_actor, school.Id, student.Id,
                 term.SelectedItem?.ToString() ?? "", subject.Text, achieved, full, resultNote.Text);
             Info("تم حفظ نتيجة المادة."); ShowStudentProfile(school, studentId, 1);
-        }), AccessPolicy.CanManageStudentEvaluation(_actor, school.Id), "success"));
+        }), canEvaluate, "success"));
         tabs.Items.Add(new TabItem { Header = "النتائج", Content = Box(results) });
 
         var assessment = Stack();
