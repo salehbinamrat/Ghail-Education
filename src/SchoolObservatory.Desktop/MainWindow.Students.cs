@@ -534,8 +534,13 @@ public partial class MainWindow
             contact.Children.Add(FormField("جنس الطالب", genderChoice));
         personal.Children.Add(contact);
         personal.Children.Add(FormField("ملاحظات", notes));
+        if (!canEdit)
+            personal.Children.Add(Label("هوية الطالب المرتبط بمدرسة أصلية أخرى للقراءة فقط؛ يمكن تنفيذ النقل أو تغيير الشعبة من سجل الحركات إذا كنت مخولا.", 13, true));
         personal.Children.Add(active);
-        var canEdit = AccessPolicy.CanManageStudents(_actor, school.Id);
+        // The school's enrollment can be managed locally, but permanent person
+        // identity is shared with the original school and requires its permission.
+        var canEdit = AccessPolicy.CanManageStudents(_actor, school.Id) &&
+            _store.CanEditPermanentStudentIdentity(_actor, studentId);
         name.IsReadOnly = !canEdit;
         code.IsReadOnly = !canEdit;
         guardian.IsReadOnly = !canEdit;
