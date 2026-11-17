@@ -155,7 +155,14 @@ public static class SchoolStaffImportParser
                         value = shared[index];
                     }
                 }
-                values[col] = value.Trim();
+                // Malformed OOXML may repeat a coordinate. Never let a later cell
+                // silently replace an identifier or a value already parsed.
+                if (!values.TryAdd(col, value.Trim()))
+                {
+                    var coordinate = (string?)cell.Attribute("r") ?? $"العمود {col + 1}";
+                    throw new ArgumentException(
+                        $"ورقة Excel — الخلية {coordinate}: عنوان خلية مكرر، ولا يسمح باستبدال قيمة سابقة.");
+                }
             }
             if (values.Count == 0) continue;
             var max = values.Keys.Max();
