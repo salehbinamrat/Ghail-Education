@@ -52,6 +52,8 @@ public sealed partial class SqliteStore
                 UNIQUE(school_id,employee_code)
             );
             CREATE INDEX IF NOT EXISTS ix_staff_school_category ON school_staff(school_id,category,is_active);
+            -- Non-unique because pre-existing databases may already contain duplicates.
+            CREATE INDEX IF NOT EXISTS ix_staff_cross_school_code ON school_staff(employee_code COLLATE NOCASE);
             """);
         cmd.ExecuteNonQuery();
         MigrateDirectoryProfiles(con);
@@ -150,6 +152,20 @@ public sealed partial class SqliteStore
         }
         var newRecord = string.IsNullOrWhiteSpace(staff.Id);
         var id = newRecord ? Id() : staff.Id;
+        // Preserve editable legacy duplicates, but disallow introducing a new
+        // cross-school collision during create or when changing a payroll code.
+        var oldCode = "";
+        if (!newRecord)
+        {
+            using var existing = Cmd(con, tx, """
+                SELECT employee_code FROM school_staff WHERE id=$id AND school_id=$s
+                """, ("$id", id), ("$s", staff.SchoolId));
+            oldCode = existing.ExecuteScalar()?.ToString()
+                ?? throw new InvalidOperationException("سجل الكادر غير موجود في المدرسة.");
+        }
+        if (newRecord || !string.Equals(oldCode, staff.EmployeeCode.Trim(),
+                StringComparison.OrdinalIgnoreCase))
+            EnsureUniqueDistrictEmployeeCode(con, tx, staff.EmployeeCode, staff.SchoolId, id);
         if (newRecord)
         {
             using var create = Cmd(con, tx, """
@@ -224,6 +240,7 @@ public sealed partial class SqliteStore
         var schools = GetSchools(actor).Where(x => x.IsActive)
             .ToDictionary(x => x.Code, x => x, StringComparer.OrdinalIgnoreCase);
         var duplicates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var importPayrollSchools = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var prepared = new List<(School School, StaffImportRow Row)>(rows.Count);
         foreach (var item in rows)
         {
@@ -242,11 +259,39 @@ public sealed partial class SqliteStore
             ValidateStaff(staff);
             if (!duplicates.Add(school.Id + "/" + item.EmployeeCode.Trim()))
                 throw new ArgumentException("رقم موظف مكرر لنفس المدرسة داخل ملف الاستيراد.");
+            if (importPayrollSchools.TryGetValue(item.EmployeeCode.Trim(), out var assignedSchool) &&
+                assignedSchool != school.Id)
+                throw new ArgumentException(
+                    "الملف يتضمن الرقم الوظيفي نفسه في مدرستين؛ يجب تصحيح الكشوف قبل الاستيراد.");
+            importPayrollSchools[item.EmployeeCode.Trim()] = school.Id;
             prepared.Add((school, item));
         }
 
         using var con = Open();
         using var tx = con.BeginTransaction();
+        // One preflight scan for the entire batch; no per-row SQLite lookup.
+        // Refuse cross-school collisions before the first INSERT/UPDATE.
+        var registeredSchool = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        using (var existing = Cmd(con, tx, "SELECT employee_code,school_id FROM school_staff"))
+        using (var reader = existing.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                var code = Text(reader, 0).Trim();
+                if (!registeredSchool.TryGetValue(code, out var members))
+                {
+                    members = new HashSet<string>(StringComparer.Ordinal);
+                    registeredSchool[code] = members;
+                }
+                members.Add(Text(reader, 1));
+            }
+        }
+        foreach (var (school, item) in prepared)
+            if (registeredSchool.TryGetValue(item.EmployeeCode.Trim(), out var members) &&
+                members.Any(existingSchool => existingSchool != school.Id))
+                throw new ArgumentException(
+                    "رقم وظيفي موجود في مدرسة أخرى. أوقف الاستيراد وراجع ملف الموظف والانتداب.");
+
         using var insert = Cmd(con, tx, """
             INSERT INTO school_staff(id,school_id,employee_code,full_name,category,job_title,
                 specialization,qualification,gender,is_active,created_utc,updated_utc)
