@@ -38,6 +38,74 @@ public sealed class AcademicYearPhase2Tests
     }
 
     [Fact]
+    public void GenuineEncryptedPhase1SchemaUpgradesWithoutDeletingSchoolOrStudent()
+    {
+        var path=Path.Combine(Path.GetTempPath(),"phase2-upgrade-"+Guid.NewGuid().ToString("N")+".db");
+        var store=new SqliteStore(path);
+        using (var con=DatabaseSecurity.OpenForRegressionTest(path))
+        {
+            con.Open();
+            using var cmd=con.CreateCommand();
+            cmd.CommandText="""
+                CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+                CREATE TABLE schools(
+                    id TEXT PRIMARY KEY,code TEXT NOT NULL UNIQUE,name TEXT NOT NULL,
+                    zone TEXT NOT NULL,ownership TEXT NOT NULL,stage TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1,created_utc TEXT NOT NULL,
+                    gender TEXT NOT NULL DEFAULT 'ذكور',is_kindergarten INTEGER NOT NULL DEFAULT 0);
+                CREATE TABLE users(
+                    id TEXT PRIMARY KEY,username TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL,school_id TEXT NULL,is_active INTEGER NOT NULL DEFAULT 1,
+                    failed_attempts INTEGER NOT NULL DEFAULT 0,lock_until_utc TEXT NULL,
+                    created_utc TEXT NOT NULL,permission_mask INTEGER NOT NULL DEFAULT 0,
+                    is_owner INTEGER NOT NULL DEFAULT 0,auth_version INTEGER NOT NULL DEFAULT 0);
+                CREATE TABLE census_rounds(id TEXT PRIMARY KEY,academic_year TEXT UNIQUE,
+                    snapshot_date TEXT NOT NULL,is_active INTEGER NOT NULL DEFAULT 1);
+                CREATE TABLE school_grades(
+                    id TEXT PRIMARY KEY,school_id TEXT NOT NULL,academic_year TEXT NOT NULL,
+                    grade INTEGER NOT NULL,section TEXT NOT NULL,created_utc TEXT NOT NULL,
+                    UNIQUE(school_id,academic_year,grade,section),UNIQUE(id,school_id,academic_year));
+                CREATE TABLE school_students(
+                    id TEXT PRIMARY KEY,school_id TEXT NOT NULL,student_code TEXT NOT NULL,
+                    full_name TEXT NOT NULL,gender TEXT NOT NULL,
+                    guardian_name TEXT NOT NULL DEFAULT '',guardian_phone TEXT NOT NULL DEFAULT '',
+                    notes TEXT NOT NULL DEFAULT '',is_active INTEGER NOT NULL DEFAULT 1,
+                    created_utc TEXT NOT NULL,updated_utc TEXT NOT NULL,
+                    UNIQUE(school_id,student_code),UNIQUE(id,school_id));
+                CREATE TABLE student_enrollments(
+                    student_id TEXT NOT NULL,school_id TEXT NOT NULL,academic_year TEXT NOT NULL,
+                    grade_id TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'مسجل',
+                    updated_utc TEXT NOT NULL,PRIMARY KEY(student_id,academic_year));
+                INSERT INTO settings VALUES('academic_year','2026/2027');
+                INSERT INTO schools(id,code,name,zone,ownership,stage,created_utc)
+                    VALUES('school1','S01','مدرسة','العليب','حكومية','أساسي','2026-01-01');
+                INSERT INTO census_rounds VALUES('round1','2026/2027','2026-09-01',1);
+                INSERT INTO school_grades VALUES('grade1','school1','2026/2027',3,'أ','2026-09-01');
+                INSERT INTO school_students(id,school_id,student_code,full_name,gender,created_utc,updated_utc)
+                    VALUES('student1','school1','0001','سالم','ذكور','2026-09-01','2026-09-01');
+                INSERT INTO student_enrollments VALUES('student1','school1','2026/2027','grade1','مسجل','2026-09-01');
+                PRAGMA user_version=1;
+                """;
+            cmd.ExecuteNonQuery();
+        }
+        store.Initialize();
+        Assert.Equal(2,store.SchemaVersion);
+        using var reopened=DatabaseSecurity.OpenForRegressionTest(path);
+        reopened.Open();
+        using var verify=reopened.CreateCommand();
+        verify.CommandText="""
+            SELECT COUNT(*) FROM student_person_links
+            WHERE student_id='student1' AND person_id='student1'
+            """;
+        Assert.Equal(1,Convert.ToInt32(verify.ExecuteScalar()));
+        verify.CommandText="SELECT COUNT(*) FROM student_enrollments WHERE student_id='student1'";
+        Assert.Equal(1,Convert.ToInt32(verify.ExecuteScalar()));
+        verify.CommandText="PRAGMA foreign_key_check;";
+        using var foreign=verify.ExecuteReader();
+        Assert.False(foreign.Read());
+    }
+
+    [Fact]
     public void YearClosureProtectsExistingGradesAndResultsAndKeepsHistory()
     {
         var (store, owner, school, _) = Setup();
