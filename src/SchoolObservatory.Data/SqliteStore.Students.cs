@@ -582,13 +582,10 @@ public sealed partial class SqliteStore
                 guardian_phone=CASE WHEN excluded.guardian_phone='' THEN school_students.guardian_phone
                     ELSE excluded.guardian_phone END,
                 updated_utc=excluded.updated_utc
+            RETURNING id
             """, ("$id", ""), ("$s", schoolId), ("$code", ""), ("$name", ""),
             ("$gender", ""), ("$guardian", ""), ("$phone", ""), ("$at", ""));
         upsert.Prepare();
-        using var find = Cmd(con, tx, """
-            SELECT id FROM school_students WHERE school_id=$s AND student_code=$code
-            """, ("$s", schoolId), ("$code", ""));
-        find.Prepare();
         using var enrollment = Cmd(con, tx, """
             INSERT INTO student_enrollments(student_id,school_id,academic_year,grade_id,status,updated_utc)
             VALUES($student,$s,$year,$grade,'مسجل',$at)
@@ -607,11 +604,8 @@ public sealed partial class SqliteStore
             upsert.Parameters["$guardian"].Value = item.GuardianName.Trim();
             upsert.Parameters["$phone"].Value = item.GuardianPhone.Trim();
             upsert.Parameters["$at"].Value = at;
-            upsert.ExecuteNonQuery();
-
-            find.Parameters["$code"].Value = code;
-            var studentId = find.ExecuteScalar()?.ToString()
-                ?? throw new InvalidOperationException("تعذر مطابقة الطالب بعد الاستيراد.");
+            var studentId = upsert.ExecuteScalar()?.ToString()
+                ?? throw new InvalidOperationException("تعذر الحصول على معرف الطالب بعد الاستيراد.");
             enrollment.Parameters["$student"].Value = studentId;
             enrollment.Parameters["$grade"].Value = gradeId;
             enrollment.Parameters["$at"].Value = at;
