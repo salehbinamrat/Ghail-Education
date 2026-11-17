@@ -157,7 +157,7 @@ public partial class MainWindow
             document.Blocks.Add(new Paragraph(new Run(
                 $"المدرسة: {school.Name} ({school.Code})   |   {grade.DisplayName}   |   العام الدراسي: {grade.AcademicYear}"))
             {
-                FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Center,
+                FontWeight = FontWeights.Bold, TextAlignment = TextAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 8)
             });
             document.Blocks.Add(new Paragraph(new Run(
@@ -196,7 +196,7 @@ public partial class MainWindow
                         Padding = new Thickness(4, 6, 4, 6),
                         BorderBrush = new SolidColorBrush(Color.FromRgb(188, 218, 226)),
                         BorderThickness = new Thickness(0, 0, 0, 0.7),
-                        FontWeight = header ? FontWeights.Bold : FontWeights.Normal
+                        FontWeight = FontWeights.Bold
                     });
                 }
                 group.Rows.Add(row);
