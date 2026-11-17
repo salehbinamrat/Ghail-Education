@@ -219,12 +219,18 @@ public sealed class ReportQueryService
                 }
                 else
                 {
-                    columns = ["المدرسة", "الفئة", "الصفة الوظيفية", "وضع العمل", "عدد الموظفين"];
+                    columns = ["رمز المدرسة", "المدرسة", "الفئة", "الصفة الوظيفية", "وضع العمل", "عدد الموظفين"];
+                    // Names are not unique across schools. Aggregate by the immutable
+                    // school ID and retain the code so similarly named schools stay distinct.
+                    var schoolCodes = schools.ToDictionary(s => s.Id, s => s.Code, StringComparer.Ordinal);
                     foreach (var g in directory.GroupBy(p =>
-                            new { p.SchoolName, p.Category, p.EmploymentType, p.AssignmentStatus })
-                        .OrderBy(g => g.Key.SchoolName).ThenBy(g => g.Key.Category))
-                        Add(g.Key.SchoolName, g.Key.Category, g.Key.EmploymentType,
-                            g.Key.AssignmentStatus, g.Count().ToString(CultureInfo.InvariantCulture));
+                            new { p.SchoolId, p.SchoolName, p.Category, p.EmploymentType, p.AssignmentStatus })
+                        .OrderBy(g => g.Key.SchoolName)
+                        .ThenBy(g => schoolCodes[g.Key.SchoolId])
+                        .ThenBy(g => g.Key.Category))
+                        Add(schoolCodes[g.Key.SchoolId], g.Key.SchoolName,
+                            g.Key.Category, g.Key.EmploymentType, g.Key.AssignmentStatus,
+                            g.Count().ToString(CultureInfo.InvariantCulture));
                 }
                 Total("staff", request.Kind == ReportKind.StaffDistribution ? directory.Length : rows.Count);
                 break;
