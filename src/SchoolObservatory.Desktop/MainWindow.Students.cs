@@ -502,6 +502,7 @@ public partial class MainWindow
         }
         root.Children.Add(Box(Label($"ولي الأمر: {student.GuardianName}  |  الهاتف: {student.GuardianPhone}" +
             (school.Gender == "مختلطة" ? $"  |  الجنس: {student.Gender}" : ""), 14)));
+        AppendStudentTransitions(root, school, studentId);
 
         var tabs = new TabControl
         {
