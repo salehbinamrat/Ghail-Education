@@ -367,6 +367,24 @@ public sealed class DatabaseSecurityPhase1Tests
     }
 
     [Fact]
+    public void BackupDestinationCannotTargetLiveWalOrCredentialSidecarFiles()
+    {
+        var (db, owner, path) = Build();
+        db.AddSchool(owner, "SIDE01", "مدرسة محمية", "العليب", "حكومية", "أساسي");
+        const string secret = "Unique independent backup password 2026#";
+        foreach (var forbidden in new[] {
+            path, path + "-wal", path + "-shm", path + "-journal",
+            DatabaseSecurity.KeyFile(path), path + ".automatic.dpapi", path + ".automatic-last-run"
+        })
+        {
+            Assert.Throws<InvalidOperationException>(() => db.CreateEncryptedBackup(owner, forbidden, secret));
+            Assert.Throws<InvalidOperationException>(() => db.RestoreEncryptedBackup(owner, forbidden, secret, confirmed: true));
+        }
+        Assert.Single(db.GetSchools(owner));
+        Assert.True(File.Exists(DatabaseSecurity.KeyFile(path)));
+    }
+
+    [Fact]
     public void NewerEncryptedSchemaVersionIsNotDowngradedByOlderApplication()
     {
         var (db, owner, path) = Build();
