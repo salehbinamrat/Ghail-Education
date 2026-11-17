@@ -21,6 +21,16 @@ public static class Statuses
     public const string Returned = "returned";
 }
 
+public sealed record SchoolInfrastructure(string District, string Subdistrict, string Village,
+    string AddressDetails, double? Latitude, double? Longitude, string BuildingType,
+    string BuildingCondition, int? ClassroomsCount, string OperatingShifts);
+public sealed record SchoolFacility(string FacilityType, int Quantity, string Notes);
+public sealed record PhysicalSectionRoom(string GradeId, int Grade, string Section,
+    string? RoomCode, string? Building);
+public sealed record EmployeeAssignment(string Id, string PersonId, string PayrollSchoolId,
+    string WorkplaceSchoolId, string AssignmentType, DateOnly StartDate,
+    DateOnly? EndDate, string Notes);
+
 public sealed record AcademicYearRecord(string Year, string Status, bool IsActive);
 public sealed record StudentPlacementHistory(string AcademicYear, string SchoolId,
     int Grade, string Section, string Action, string StudentRecordId);
