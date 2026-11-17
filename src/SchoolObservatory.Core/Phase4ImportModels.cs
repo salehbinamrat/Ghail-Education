@@ -33,6 +33,13 @@ public sealed record ImportBatchSummary(
     string ImportedUtc, string Username, int Created, int Updated, int Unchanged,
     int Rejected, string Status, string Warnings);
 
+public sealed record ImportBatchChangeRow(
+    int SourceRow, string EntityId, string Operation,
+    IReadOnlyList<ImportFieldChange> Changes)
+{
+    public int ChangeCount => Changes.Count;
+}
+
 public static class ImportColumnMapping
 {
     private static readonly IReadOnlyDictionary<ImportEntity, Dictionary<string,string[]>> Schemas =
