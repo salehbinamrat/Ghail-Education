@@ -403,6 +403,10 @@ public static class DatabaseSecurity
 
     internal static void ProtectLocalFile(string path) => SecureFile(path);
 
+    // Internal-only regression hook: never exposed through application UI.
+    internal static SqliteConnection OpenForRegressionTest(string databasePath) =>
+        OpenEncrypted(databasePath, ReadHexKey(KeyFile(databasePath)));
+
     internal static string ReadCurrentKey(string databasePath) => ReadHexKey(KeyFile(databasePath));
 
     internal static string BackupSchemaBeforeChanges(string databasePath, string key)
