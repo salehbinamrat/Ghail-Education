@@ -30,6 +30,50 @@ public sealed partial class SqliteStore
         return result;
     }
 
+    /// <summary>Inspectable, permission-scoped history of every row's applied field values.</summary>
+    public IReadOnlyList<ImportBatchChangeRow> GetImportBatchChanges(UserAccount actor,string batchId)
+    {
+        RequireFreshActor(actor);
+        if(!AccessPolicy.Has(actor,PermissionFlags.ViewSchools))
+            throw new UnauthorizedAccessException("لا تملك صلاحية عرض تفاصيل الاستيراد.");
+        using var con=Open();
+        ImportEntity kind;
+        string author;
+        using(var cmd=Cmd(con,null,
+            "SELECT entity_type,actor_id FROM import_batches WHERE id=$id",("$id",batchId)))
+        using(var r=cmd.ExecuteReader())
+        {
+            if(!r.Read()) throw new ArgumentException("الدفعة غير موجودة.");
+            kind=Enum.Parse<ImportEntity>(Text(r,0));
+            author=Text(r,1);
+        }
+        if(!actor.IsOwner && author!=actor.Id ||
+            kind==ImportEntity.Staff && !AccessPolicy.Has(actor,PermissionFlags.ViewStaff) ||
+            kind is ImportEntity.Students or ImportEntity.Sections &&
+                !AccessPolicy.Has(actor,PermissionFlags.ViewStudents))
+            throw new UnauthorizedAccessException("ليس لديك صلاحية الاطلاع على تفاصيل هذه الدفعة.");
+        var list=new List<ImportBatchChangeRow>();
+        using var changes=Cmd(con,null,"""
+            SELECT ordinal,entity_id,operation,before_json,after_json
+            FROM import_changes WHERE batch_id=$id ORDER BY ordinal
+            """,("$id",batchId));
+        using var reader=changes.ExecuteReader();
+        while(reader.Read())
+        {
+            var before=reader.IsDBNull(3) || Text(reader,3).Length==0 ?
+                new Dictionary<string,string>() : DecodeImportSnapshot(Text(reader,3));
+            var after=DecodeImportSnapshot(Text(reader,4));
+            var details=before.Keys.Union(after.Keys,StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x=>x,StringComparer.Ordinal)
+                .Where(key=>before.GetValueOrDefault(key,"")!=after.GetValueOrDefault(key,""))
+                .Select(key=>new ImportFieldChange(key,before.GetValueOrDefault(key,""),
+                    after.GetValueOrDefault(key,""))).ToArray();
+            list.Add(new ImportBatchChangeRow(reader.GetInt32(0),Text(reader,1),
+                Text(reader,2),details));
+        }
+        return list;
+    }
+
     private sealed record StoredImportChange(int Row,string Id,string SchoolId,string Operation,
         Dictionary<string,string> Before,Dictionary<string,string> After);
 
