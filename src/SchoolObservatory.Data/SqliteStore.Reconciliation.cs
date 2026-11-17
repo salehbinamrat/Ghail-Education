@@ -91,7 +91,7 @@ public sealed partial class SqliteStore
     }
 
     private static SchoolOperationalSnapshot ReadOperationalSnapshot(
-        SqliteConnection con, SqliteTransaction? tx, string schoolId, string year, string today)
+        SqliteConnection con, SqliteTransaction? tx, string schoolId, string year, string today, bool currentYear)
     {
         // The payroll dimension is the original employee identity. A secondment is
         // an assignment of that same person, never a duplicate school_staff record.
@@ -100,16 +100,19 @@ public sealed partial class SqliteStore
                 (SELECT COUNT(DISTINCT h.student_id)
                  FROM student_history h JOIN school_students st ON st.id=h.student_id
                  WHERE h.school_id=s.id AND h.academic_year=$year
-                   AND h.status='مسجل' AND h.end_utc IS NULL AND st.is_active=1),
+                   AND h.status='مسجل' AND h.end_utc IS NULL
+                   AND (st.is_active=1 OR $current=0)),
                 (SELECT COUNT(DISTINCT h.student_id)
                  FROM student_history h JOIN school_students st ON st.id=h.student_id
                  WHERE h.school_id=s.id AND h.academic_year=$year
-                   AND h.status='مسجل' AND h.end_utc IS NULL AND st.is_active=1
+                   AND h.status='مسجل' AND h.end_utc IS NULL
+                   AND (st.is_active=1 OR $current=0)
                    AND st.gender='ذكور'),
                 (SELECT COUNT(DISTINCT h.student_id)
                  FROM student_history h JOIN school_students st ON st.id=h.student_id
                  WHERE h.school_id=s.id AND h.academic_year=$year
-                   AND h.status='مسجل' AND h.end_utc IS NULL AND st.is_active=1
+                   AND h.status='مسجل' AND h.end_utc IS NULL
+                   AND (st.is_active=1 OR $current=0)
                    AND st.gender='إناث'),
                 (SELECT COUNT(*) FROM school_grades g
                  WHERE g.school_id=s.id AND g.academic_year=$year),
@@ -135,7 +138,8 @@ public sealed partial class SqliteStore
                 (SELECT COUNT(*) FROM school_council_members c
                  WHERE c.school_id=s.id AND c.is_active=1)
             FROM schools s WHERE s.id=$school
-            """, ("$school", schoolId), ("$year", year), ("$today", today));
+            """, ("$school", schoolId), ("$year", year), ("$today", today),
+            ("$current", currentYear ? 1 : 0));
         using var reader = cmd.ExecuteReader();
         if (!reader.Read()) throw new ArgumentException("المدرسة غير موجودة.", nameof(schoolId));
         return new SchoolOperationalSnapshot(schoolId, Text(reader, 0), year,
@@ -153,14 +157,18 @@ public sealed partial class SqliteStore
         using var con = Open();
         using var tx = con.BeginTransaction();
         EnsureYearExists(con, tx, academicYear);
+        string activeYear;
+        using (var active = Cmd(con, tx, "SELECT value FROM settings WHERE key='academic_year'"))
+            activeYear = active.ExecuteScalar()?.ToString() ?? "";
         var result = ReadOperationalSnapshot(con, tx, schoolId, academicYear,
-            DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            activeYear == academicYear);
         tx.Commit();
         return result;
     }
 
     private static IReadOnlyDictionary<int, (int Total, int Boys, int Girls)> ReadGradeTotals(
-        SqliteConnection con, SqliteTransaction tx, string schoolId, string year)
+        SqliteConnection con, SqliteTransaction tx, string schoolId, string year, bool currentYear)
     {
         using var cmd = Cmd(con, tx, """
             SELECT g.grade,COUNT(DISTINCT h.student_id),
@@ -169,10 +177,12 @@ public sealed partial class SqliteStore
             FROM school_grades g
             LEFT JOIN student_history h ON h.grade_id=g.id AND h.school_id=g.school_id
                 AND h.academic_year=g.academic_year AND h.status='مسجل' AND h.end_utc IS NULL
-            LEFT JOIN school_students st ON st.id=h.student_id AND st.is_active=1
+            LEFT JOIN school_students st ON st.id=h.student_id
+                AND (st.is_active=1 OR $current=0)
             WHERE g.school_id=$s AND g.academic_year=$y
             GROUP BY g.grade
-            """, ("$s", schoolId), ("$y", year));
+            """, ("$s", schoolId), ("$y", year),
+            ("$current", currentYear ? 1 : 0));
         var map = new Dictionary<int, (int, int, int)>();
         using var r = cmd.ExecuteReader();
         while (r.Read())
@@ -259,7 +269,7 @@ public sealed partial class SqliteStore
         var results = new List<CensusReconciliationRow>();
         foreach (var schoolId in schools)
         {
-            var live = ReadOperationalSnapshot(con, tx, schoolId, academicYear, today);
+            var live = ReadOperationalSnapshot(con, tx, schoolId, academicYear, today, isCurrent);
             var hasOfficial = approved.TryGetValue(schoolId, out var official);
             string? id = hasOfficial ? official.Id : null;
             var context = isCurrent
@@ -295,7 +305,7 @@ public sealed partial class SqliteStore
                 "من ملف المدرسة مباشرة دون نسخ بيانات الأعضاء إلى الاستمارة.");
 
             // Grade-level discrepancies expose errors hidden by district totals.
-            var actualGrades = ReadGradeTotals(con, tx, schoolId, academicYear);
+            var actualGrades = ReadGradeTotals(con, tx, schoolId, academicYear, isCurrent);
             var censusGrades = new Dictionary<int, int>();
             if (hasOfficial)
             {
