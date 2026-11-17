@@ -411,6 +411,21 @@ public sealed partial class SqliteStore
             while (reader.Read()) current.Add((reader.GetString(0),reader.GetInt32(1),reader.GetString(2)));
         if (current.Count == 0) throw new InvalidOperationException("Student has no enrollment.");
         var latest=current[0];
+        using (var status = Cmd(con, tx, """
+            SELECT status FROM student_enrollments
+            WHERE student_id=$id AND academic_year=$y
+            """, ("$id", studentId), ("$y", latest.Year)))
+            if (status.ExecuteScalar()?.ToString() != "مسجل")
+                throw new InvalidOperationException("Student is no longer actively enrolled at the source school.");
+        using (var already = Cmd(con, tx, """
+            SELECT COUNT(*) FROM student_enrollments en
+            JOIN student_person_links link ON link.student_id=en.student_id
+            WHERE link.person_id=$person AND en.academic_year=$year
+              AND en.student_id<>$source AND en.status='مسجل'
+            """, ("$person", personId), ("$year", year), ("$source", studentId)))
+            if (Convert.ToInt32(already.ExecuteScalar(), CultureInfo.InvariantCulture)>0)
+                throw new InvalidOperationException("Student already has an active enrollment in another school.");
+
         if (action == "promote" && (latest.Year == year || targetGrade != latest.Grade + 1))
             throw new InvalidOperationException("Promotion must advance one grade to a new year.");
         if (action == "repeat" && (latest.Year == year || targetGrade != latest.Grade))
