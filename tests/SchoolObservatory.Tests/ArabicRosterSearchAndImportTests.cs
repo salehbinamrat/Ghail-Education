@@ -70,4 +70,24 @@ public sealed class ArabicRosterSearchAndImportTests
         Assert.Equal(120, store.ImportStudents(admin, school.Id, rows, "students.xlsx"));
         Assert.Equal(120, store.GetStudents(admin, school.Id).Count);
     }
+
+    [Fact]
+    public void StudentTablesHaveVisibleHoverAndSelectedRowStates()
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory is not null &&
+               !File.Exists(Path.Combine(directory.FullName, "SchoolObservatory.sln")))
+            directory = directory.Parent;
+        Assert.NotNull(directory);
+
+        var xaml = System.Xml.Linq.XDocument.Load(Path.Combine(directory!.FullName,
+            "src", "SchoolObservatory.Desktop", "App.xaml"));
+        System.Xml.Linq.XNamespace wpf = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        var rowStyle = Assert.Single(xaml.Descendants(wpf + "Style")
+            .Where(style => style.Attribute("TargetType")?.Value == "DataGridRow"));
+        Assert.Contains(rowStyle.Descendants(wpf + "Trigger"),
+            trigger => trigger.Attribute("Property")?.Value == "IsMouseOver");
+        Assert.Contains(rowStyle.Descendants(wpf + "Trigger"),
+            trigger => trigger.Attribute("Property")?.Value == "IsSelected");
+    }
 }
