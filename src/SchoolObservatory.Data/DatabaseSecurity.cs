@@ -355,6 +355,11 @@ public static class DatabaseSecurity
                 }
             }
 
+            // Earlier plain SQLite versions, import tools and third-party readers
+            // may have used Microsoft.Data.Sqlite's default connection pooling.
+            // Disposing the managed connection does not close its pooled native VFS
+            // file handle: flush our process's idle pools before Windows File.Replace.
+            SqliteConnection.ClearAllPools();
             SecureFile(candidate);
             if (File.Exists(db + "-wal") || File.Exists(db + "-shm"))
                 throw new IOException("Active WAL sidecars remain; close other instances before migrating.");
