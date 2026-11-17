@@ -91,24 +91,34 @@ public sealed partial class SqliteStore
             throw new UnauthorizedAccessException("لا يمكن إصدار تقارير الإحصاء.");
         using var con = Open();
         using var cmd = Cmd(con, null, """
-            WITH most_recent AS (
+            WITH latest AS (
                 SELECT s.school_id, MAX(s.revision) AS revision
                 FROM submissions s
                 JOIN census_rounds cr ON cr.id=s.round_id
                 WHERE cr.academic_year=$year
                 GROUP BY s.school_id
+            ),
+            latest_approved AS (
+                SELECT s.school_id, MAX(s.revision) AS revision
+                FROM submissions s
+                JOIN census_rounds cr ON cr.id=s.round_id
+                WHERE cr.academic_year=$year AND s.status='approved'
+                GROUP BY s.school_id
             )
             SELECT s.id,s.school_id,school.name,round.academic_year,s.revision,s.status,
                    s.male_teachers,s.female_teachers,s.classrooms,s.notes,s.decision_reason,s.created_utc,
                    e.grade,e.boys,e.girls
-            FROM most_recent recent
-            JOIN submissions s ON s.school_id=recent.school_id
-                 AND s.revision=recent.revision
+            FROM submissions s
             JOIN census_rounds round ON round.id=s.round_id AND round.academic_year=$year
             JOIN schools school ON school.id=s.school_id
             LEFT JOIN enrollment_rows e ON e.submission_id=s.id
             WHERE ($scope IS NULL OR s.school_id=$scope)
-            ORDER BY s.school_id,CAST(e.grade AS INTEGER)
+              AND (EXISTS (SELECT 1 FROM latest newest
+                           WHERE newest.school_id=s.school_id AND newest.revision=s.revision)
+                   OR (s.status='approved' AND EXISTS
+                       (SELECT 1 FROM latest_approved last_ok
+                        WHERE last_ok.school_id=s.school_id AND last_ok.revision=s.revision)))
+            ORDER BY s.school_id,s.revision DESC,CAST(e.grade AS INTEGER)
             """, ("$year", academicYear),
                ("$scope", actor.Role is Roles.Entry or Roles.Principal
                     ? actor.SchoolId ?? "" : null));
