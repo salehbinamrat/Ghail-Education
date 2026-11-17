@@ -493,7 +493,7 @@ public partial class MainWindow : Window
             Width = 150, ItemsSource = new[] { "ذكور", "إناث", "غير محدد" },
             SelectedIndex = 2
         };
-        var active = new CheckBox { Content = "الموظف على رأس العمل",
+        var active = new CheckBox { Content = "السجل نشط في كشوف المدرسة (الانتداب يسجل في الملف الوظيفي)",
             IsChecked = true, Margin = new Thickness(6, 10, 6, 6) };
 
         var fields = new WrapPanel();
