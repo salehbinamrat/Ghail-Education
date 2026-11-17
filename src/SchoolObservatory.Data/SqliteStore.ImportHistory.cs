@@ -49,7 +49,7 @@ public sealed partial class SqliteStore
         }
         if(!actor.IsOwner && author!=actor.Id ||
             kind==ImportEntity.Staff && !AccessPolicy.Has(actor,PermissionFlags.ViewStaff) ||
-            kind is ImportEntity.Students or ImportEntity.Sections &&
+            (kind==ImportEntity.Students || kind==ImportEntity.Sections) &&
                 !AccessPolicy.Has(actor,PermissionFlags.ViewStudents))
             throw new UnauthorizedAccessException("ليس لديك صلاحية الاطلاع على تفاصيل هذه الدفعة.");
         var list=new List<ImportBatchChangeRow>();
