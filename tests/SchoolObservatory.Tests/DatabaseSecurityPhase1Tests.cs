@@ -305,4 +305,17 @@ public sealed class DatabaseSecurityPhase1Tests
         Assert.Single(db.GetSchools(owner));
     }
 
+    [Fact]
+    public void NativeCipherSmokeRunsInTheRequestedWindowsProcessArchitecture()
+    {
+        var target = Environment.GetEnvironmentVariable("SCHOOL_OBSERVATORY_EXPECTED_ARCH");
+        if (string.IsNullOrWhiteSpace(target)) return;
+        var wanted = target.Equals("x86", StringComparison.OrdinalIgnoreCase)
+            ? System.Runtime.InteropServices.Architecture.X86
+            : System.Runtime.InteropServices.Architecture.X64;
+        Assert.Equal(wanted, System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture);
+        var (_, _, path) = Build();
+        Assert.False(DatabaseSecurity.IsPlaintext(path));
+    }
+
 }
