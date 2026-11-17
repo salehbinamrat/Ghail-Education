@@ -23,6 +23,15 @@ jobs:
       - run: dotnet restore SchoolObservatory.sln
       - run: dotnet build SchoolObservatory.sln --configuration Release --no-restore -warnaserror
       - run: dotnet test SchoolObservatory.sln --configuration Release --no-build --no-restore --logger "trx;LogFileName=release-tests.trx"
+      # Before publishing any distribution, verify the native SQLCipher-compatible engine
+      # and backup/restore regressions under BOTH Windows process architectures.
+      - name: Native SQLCipher x86 and x64 recovery smoke tests
+        shell: pwsh
+        run: |
+          foreach ($arch in @('x86','x64')) {
+            dotnet test tests/SchoolObservatory.Tests/SchoolObservatory.Tests.csproj --configuration Release --arch $arch --filter "FullyQualifiedName~DatabaseSecurityPhase1Tests" --logger "trx;LogFileName=security-$arch.trx"
+            if ($LASTEXITCODE -ne 0) { throw "Native $arch encryption/recovery tests failed: packaging forbidden" }
+          }
 
   build-packages:
     name: Release / package-${{ matrix.arch }}
