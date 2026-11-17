@@ -18,8 +18,14 @@ public sealed class DashboardService
     public string DistrictName => _store.DistrictName;
     public string AcademicYear => _store.AcademicYear;
 
-    public DashboardOverview GetOverview() =>
-        DashboardOverview.Compose(_store.GetLiveDirectoryTotals(_actor), _store.GetDashboard(_actor));
+    public DashboardOverview GetOverview()
+    {
+        var snapshot = DashboardOverview.Compose(
+            _store.GetLiveDirectoryTotals(_actor), _store.GetDashboard(_actor));
+        // School accounts do not receive cross-school payroll conflict diagnostics.
+        return _actor.Role is Roles.Entry or Roles.Principal
+            ? snapshot with { Warning = "" } : snapshot;
+    }
 
     public bool CanOpenReports => AccessPolicy.Has(_actor, PermissionFlags.ViewReports);
     public bool CanOpenReconciliation =>

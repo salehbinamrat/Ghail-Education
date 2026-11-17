@@ -171,4 +171,41 @@ public sealed class ProfessionalUiPhase5Tests
         })
             Assert.Contains(token, doc, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void XamlNamedEventHandlersStayConnectedToActualCodeBehind()
+    {
+        foreach (var page in new[] {
+            "MainWindow", "LoginWindow", "SetupWindow", "Views/DashboardView"
+        })
+        {
+            var xaml = XDocument.Load(PathInRepo("src", "SchoolObservatory.Desktop",
+                page.Replace('/', Path.DirectorySeparatorChar) + ".xaml"));
+            var code = Desktop(page + ".xaml.cs");
+            foreach (var control in xaml.Descendants())
+            {
+                foreach (var evt in new[] { "Click", "Loaded", "KeyDown" })
+                {
+                    var handler = (string?)control.Attribute(evt);
+                    if (handler is not null)
+                        Assert.Contains(handler + "(", code, StringComparison.Ordinal);
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void ReviewAndCensusActionsAreNotShownOutsideTheirPermissions()
+    {
+        var source = Desktop("MainWindow.xaml.cs");
+        Assert.Contains("if (AccessPolicy.Has(_actor, PermissionFlags.ApproveDistrict))",
+            source, StringComparison.Ordinal);
+        Assert.Contains("if (AccessPolicy.Has(_actor, PermissionFlags.ApproveSchool))",
+            source, StringComparison.Ordinal);
+        Assert.Contains("if (editable) form.Children.Add(actions)", source, StringComparison.Ordinal);
+        Assert.Contains("new UiValidationIssue(\"reason\"", source, StringComparison.Ordinal);
+        var students = Desktop("MainWindow.Students.cs");
+        Assert.Contains("exportRoster.IsEnabled = canManage;", students, StringComparison.Ordinal);
+        Assert.Contains("printRoster.IsEnabled = canManage;", students, StringComparison.Ordinal);
+    }
 }

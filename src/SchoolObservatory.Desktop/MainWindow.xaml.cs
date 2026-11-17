@@ -938,7 +938,8 @@ public partial class MainWindow : Window
         roomsHint.Foreground = new SolidColorBrush(Color.FromRgb(26, 111, 127));
         form.Children.Add(roomsHint);
         var assist = new WrapPanel { Margin = new Thickness(0, 5, 0, 10) };
-        assist.Children.Add(Btn("تعبئة عدد الشعب من كشوف المدرسة", (_, _) => ValidateCensus(() =>
+        if (editable && canReadRosters)
+            assist.Children.Add(Btn("تعبئة عدد الشعب من كشوف المدرسة", (_, _) => ValidateCensus(() =>
         {
             if (combo.SelectedItem is not School selected) return;
             var sections = _store.GetSchoolGrades(_actor, selected.Id);
@@ -951,7 +952,8 @@ public partial class MainWindow : Window
             rooms.Text = count.ToString(CultureInfo.InvariantCulture);
             roomsHint.Text = $"تم اقتراح {count} فصلا من كشوف الصفوف والشعب. راجع العدد قبل حفظ المسودة؛ لم تتغير الاستمارة الرسمية بعد.";
         }), editable && canReadRosters, "secondary"));
-        assist.Children.Add(Btn("تعبئة أعداد الطلاب من الكشوف الحالية", (_, _) => ValidateCensus(() =>
+        if (editable && canReadRosters)
+            assist.Children.Add(Btn("تعبئة أعداد الطلاب من الكشوف الحالية", (_, _) => ValidateCensus(() =>
         {
             if (combo.SelectedItem is not School selected) return;
             var suggested = CensusNumberInput.SuggestGradeTotals(
@@ -975,7 +977,7 @@ public partial class MainWindow : Window
             table.Items.Refresh();
             roomsHint.Text = "تمت تعبئة أعداد الطلاب النشطين في الصفوف ذات السجلات؛ راجعها ثم احفظ المسودة للمراجعة الرسمية.";
         }), editable && canReadRosters, "secondary"));
-        form.Children.Add(assist);
+        if (editable && canReadRosters) form.Children.Add(assist);
 
         form.Children.Add(Label("3. ملاحظات المدرسة", 17, true));
         var notes = new TextBox
@@ -987,7 +989,8 @@ public partial class MainWindow : Window
         form.Children.Add(notes);
 
         var actions = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
-        actions.Children.Add(Btn("حفظ المسودة", (_, _) => ValidateCensus(() =>
+        if (editable)
+            actions.Children.Add(Btn("حفظ المسودة", (_, _) => ValidateCensus(() =>
         {
             if (combo.SelectedItem is not School selected) return;
             table.CommitEdit(DataGridEditingUnit.Cell, true);
@@ -1012,7 +1015,8 @@ public partial class MainWindow : Window
                 ? "تم حفظ البيانات بنجاح."
                 : $"تم حفظ المسودة بنجاح — المراجعة {latest.Revision}. يمكن الآن رفعها للمراجعة.";
         }), editable, "success"));
-        actions.Children.Add(Btn("رفع المسودة للمراجعة", (_, _) => ValidateCensus(() =>
+        if (editable)
+            actions.Children.Add(Btn("رفع المسودة للمراجعة", (_, _) => ValidateCensus(() =>
         {
             if (combo.SelectedItem is not School selected) return;
             var latest = _store.GetLatestSubmission(_actor, selected.Id)
@@ -1020,7 +1024,7 @@ public partial class MainWindow : Window
             _store.ChangeStatus(_actor, latest.Id, "submit");
             ShowCensusCore(selected.Id);
         }), editable, "warning"));
-        form.Children.Add(actions);
+        if (editable) form.Children.Add(actions);
         root.Children.Add(Box(form));
 
         combo.SelectionChanged += (_, _) =>
@@ -1090,29 +1094,41 @@ public partial class MainWindow : Window
             ("المدرسة", "SchoolName", false), ("السنة", "Year", false),
             ("المراجعة", "Revision", false), ("الحالة", "StatusArabic", false),
             ("الطلاب", "Students", false), ("المعلمون", "Teachers", false));
-        root.Children.Add(Box(grid));
+        root.Children.Add(Box(TableSurface(grid, "لا توجد سجلات مطابقة في الجدول الحالي.")));
         var actions = Stack();
         actions.Children.Add(Label("حدد استمارة، ثم اختر الإجراء المناسب لصلاحيتك:", 15, true));
         var reason = new TextBox { MinWidth = 380, HorizontalAlignment = HorizontalAlignment.Left };
         actions.Children.Add(Label("سبب الإعادة للتصحيح (إلزامي عند الإعادة)", 13));
         actions.Children.Add(reason);
+        var returnValidation = new InlineValidationPresenter();
+        actions.Children.Add(returnValidation.Message);
         void Change(string action)
         {
-            Safe(() =>
+            if (grid.SelectedItem is not ReviewLine chosen)
             {
-                if (grid.SelectedItem is not ReviewLine chosen)
-                    throw new InvalidOperationException("حدد استمارة من الجدول أولا.");
+                returnValidation.ShowError("حدد استمارة من الجدول أولا.");
+                return;
+            }
+            if (action == "return" && !returnValidation.Show(
+                    string.IsNullOrWhiteSpace(reason.Text)
+                        ? new[] { new UiValidationIssue("reason", "اكتب سبب الإعادة للتصحيح.") }
+                        : Array.Empty<UiValidationIssue>(),
+                    new Dictionary<string, Control> { ["reason"] = reason }))
+                return;
+            try
+            {
                 _store.ChangeStatus(_actor, chosen.Source.Id, action, reason.Text);
                 Info("تم تسجيل الإجراء بنجاح."); ShowReviews();
-            });
+            }
+            catch (Exception ex) { returnValidation.ShowError(ex.Message); }
         }
         var buttons = new WrapPanel();
-        buttons.Children.Add(Btn("إقرار مدير المدرسة", (_, _) => Change("school_approve"),
-            AccessPolicy.Has(_actor, PermissionFlags.ApproveSchool)));
-        buttons.Children.Add(Btn("اعتماد المديرية النهائي", (_, _) => Change("district_approve"),
-            AccessPolicy.Has(_actor, PermissionFlags.ApproveDistrict)));
-        buttons.Children.Add(Btn("إرجاع للتصحيح", (_, _) => Change("return"),
-            AccessPolicy.Has(_actor, PermissionFlags.ReviewCensus)));
+        if (AccessPolicy.Has(_actor, PermissionFlags.ApproveSchool))
+            buttons.Children.Add(Btn("إقرار مدير المدرسة", (_, _) => Change("school_approve")));
+        if (AccessPolicy.Has(_actor, PermissionFlags.ApproveDistrict))
+            buttons.Children.Add(Btn("اعتماد المديرية النهائي", (_, _) => Change("district_approve")));
+        if (AccessPolicy.Has(_actor, PermissionFlags.ReviewCensus))
+            buttons.Children.Add(Btn("إرجاع للتصحيح", (_, _) => Change("return")));
         actions.Children.Add(buttons);
         root.Children.Add(Box(actions));
         Display("المراجعة والاعتماد", root);
@@ -1136,7 +1152,7 @@ public partial class MainWindow : Window
             ("المدرسة", "SchoolName", false), ("ذكور", "Data.Boys", false),
             ("إناث", "Data.Girls", false), ("طلاب", "Data.Students", false),
             ("المعلمون", "Data.Teachers", false), ("الفصول", "Data.Classrooms", false));
-        root.Children.Add(Box(grid));
+        root.Children.Add(Box(TableSurface(grid, "لا توجد سجلات مطابقة في الجدول الحالي.")));
         root.Children.Add(Btn("تصدير التقرير إلى CSV متوافق مع إكسل", (_, _) => Safe(() =>
         {
             var dialog = new SaveFileDialog { Filter = "CSV (*.csv)|*.csv", FileName = "SchoolObservatory-Approved.csv" };
@@ -1183,7 +1199,7 @@ public partial class MainWindow : Window
             ("الحساب", "Username", false), ("الدور", "RoleDisplayName", false),
             ("المدرسة", "SchoolDisplayName", false), ("المسؤول المؤسس", "IsOwner", false),
             ("الحالة", "IsActive", false));
-        root.Children.Add(Box(grid));
+        root.Children.Add(Box(TableSurface(grid, "لا توجد سجلات مطابقة في الجدول الحالي.")));
 
         var form = Stack();
         form.Children.Add(Label("إضافة حساب جديد أو تحديد حساب من الجدول لتعديل صلاحياته", 16, true));

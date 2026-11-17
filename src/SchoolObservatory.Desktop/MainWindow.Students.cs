@@ -485,7 +485,8 @@ public partial class MainWindow
         schoolPicker.SelectionChanged += (_, _) =>
         {
             if (schoolPicker.SelectedItem is School school)
-                import.IsEnabled = AccessPolicy.CanManageStudents(_actor, school.Id);
+                import.Visibility = AccessPolicy.CanManageStudents(_actor, school.Id)
+                    ? Visibility.Visible : Visibility.Collapsed;
         };
 
         Display("الطلاب والصفوف", root);
