@@ -58,3 +58,9 @@ Scope: presentation and incremental MVVM only, based on Phase 4 merge 97a438cf. 
 - Stop on any CI failure; no merge until gates pass. Manual test matrix must be completed on an actual Windows device before claiming full visual acceptance or production readiness.
 
 Out of scope: Phase 6, data migrations and a full rewrite of all WPF code-behind.
+
+## حالات عربية إلزامية للفحص
+- الكادر: فحص البحث، تسجيل التكليف، أرشفة الموظف واستعادته مع الحفاظ على هويته.
+- الصلاحيات: مستخدم المدرسة يقرأ سجلات مدرسته فقط، ولا تظهر له إجراءات الاعتماد والحذف أو إدارة المستخدمين دون تفويض.
+- التراجع: جرب عكس دفعة استيراد مع تعديلات لاحقة وتأكد من رفض العملية دون حذف أي سجل.
+- كرر التحقق من كل زر وقائمة ونافذة باستخدام لوحة المفاتيح، ثم انتقل بين الشاشات دون فقد سياق العمل.
