@@ -128,6 +128,9 @@ public partial class MainWindow : Window
     {
         SectionTitle.Text = title;
         ContentHost.Content = body;
+        // Opening a different page or profile should start at its heading, not at
+        // the vertical position left from the previous long form.
+        ContentScroll.ScrollToTop();
         UpdateActiveNavigation(title);
     }
 
@@ -264,78 +267,94 @@ public partial class MainWindow : Window
         Close();
     }
 
+    private static Border DashboardCard(string caption, int value, Color accent)
+    {
+        var group = Stack();
+        group.Children.Add(new TextBlock
+        {
+            Text = caption, FontFamily = new FontFamily("Arial"), FontWeight = FontWeights.Bold,
+            FontSize = 15, Foreground = new SolidColorBrush(Color.FromRgb(56, 75, 97)),
+            TextWrapping = TextWrapping.Wrap, MinHeight = 37
+        });
+        group.Children.Add(new TextBlock
+        {
+            Text = value.ToString("N0", CultureInfo.CurrentCulture),
+            FontFamily = new FontFamily("Arial"), FontSize = 29, FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(accent), Margin = new Thickness(0, 6, 0, 0)
+        });
+        return new Border
+        {
+            Child = group, Background = Brushes.White, CornerRadius = new CornerRadius(12),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(197, 222, 231)),
+            BorderThickness = new Thickness(1, 1, 1, 3),
+            Padding = new Thickness(15, 12, 15, 12),
+            Width = 223, MinHeight = 113, Margin = new Thickness(0, 0, 10, 10)
+        };
+    }
+
     private void ShowDashboard()
     {
         var data = _store.GetDashboard(_actor);
-        // Live operational figures use current school / student / staff rows.
-        // Approved census snapshots are preserved as a separate official section.
         var live = _store.GetLiveDirectoryTotals(_actor);
         var root = Stack();
-        root.Children.Add(Label($"أهلا بك في { _store.DistrictName } — نظرة عامة على البيانات المعتمدة", 17));
-        var tiles = new WrapPanel { Margin = new Thickness(0, 12, 0, 14) };
-        foreach (var (title, count) in new (string, int)[] {
-            ("المدارس النشطة", data.Schools), ("الإحصاءات المعتمدة", data.Approved),
-            ("قيد المراجعة", data.Submitted), ("طلاب الإحصاء المعتمد", data.Students),
-            ("معلمو الإحصاء المعتمد", data.Teachers), ("الفصول", data.Classrooms) })
+        root.Children.Add(Label($"مرصد مدارس { _store.DistrictName }", 21, true));
+        root.Children.Add(Label(
+            "ملخص واحد للبيانات الحالية. الأعداد التشغيلية ترتبط بكشوف المدارس مباشرة، أما الإحصاء المعتمد فيخضع للمراجعة.", 14));
+
+        root.Children.Add(Label("البيانات المدرسية الحالية", 18, true));
+        var cards = new WrapPanel { Margin = new Thickness(0, 8, 0, 14) };
+        var values = new List<(string Title, int Value, Color Accent)>
         {
-            var tile = Stack();
-            tile.Children.Add(new TextBlock { Text = title, FontSize = 14, Foreground = _muted });
-            tile.Children.Add(new TextBlock { Text = count.ToString("N0", CultureInfo.CurrentCulture),
-                FontSize = 26, FontWeight = FontWeights.Bold, Foreground = _primary, Margin = new Thickness(0, 9, 0, 0) });
-            var card = Box(tile);
-            card.Width = 220; card.Margin = new Thickness(0, 0, 12, 12);
-            tiles.Children.Add(card);
-        }
-        root.Children.Add(tiles);
-        root.Children.Add(Label("مؤشرات السجلات المباشرة — تتحدث عند الإضافة أو التعديل أو الأرشفة", 18, true));
-        var liveTiles = new WrapPanel { Margin = new Thickness(0, 6, 0, 12) };
-        var liveNumbers = new List<(string Title, int Count)>
-        {
-            ("المدارس النشطة", live.Schools),
-            ("أعضاء مجالس الآباء والأمهات", live.CouncilMembers)
+            ("المدارس النشطة", live.Schools, Color.FromRgb(8, 111, 151)),
+            ("مجالس الآباء والأمهات", live.CouncilMembers, Color.FromRgb(119, 77, 165))
         };
         if (live.StudentsVisible)
         {
-            liveNumbers.Add(("الطلاب المسجلون حاليا", live.ActiveStudents));
-            liveNumbers.Add(("الشعب والكشوف", live.Sections));
+            values.Add(("الطلاب النشطون", live.ActiveStudents, Color.FromRgb(16, 131, 106)));
+            values.Add(("الشعب الدراسية المسجلة", live.Sections, Color.FromRgb(24, 117, 169)));
         }
         if (live.StaffVisible)
         {
-            liveNumbers.Add(("المعلمون في كشوف المدرسة", live.ActiveTeachers));
-            liveNumbers.Add(("الإداريون في الكشوف", live.ActiveAdministrators));
-            liveNumbers.Add(("الأخصائيون في الكشوف", live.ActiveSpecialists));
-            liveNumbers.Add(("المباشرون حسب بيانات العمل", live.DirectStaff));
-            liveNumbers.Add(("المنتدبون والمكلفون والمعارون", live.SecondedStaff));
-            liveNumbers.Add(("إجازة أو حالة عمل غير محددة", live.UnclassifiedStaff));
+            values.Add(("المعلمون في الكشوف", live.ActiveTeachers, Color.FromRgb(19, 117, 151)));
+            values.Add(("الإداريون في الكشوف", live.ActiveAdministrators, Color.FromRgb(143, 101, 37)));
+            values.Add(("الأخصائيون الاجتماعيون", live.ActiveSpecialists, Color.FromRgb(122, 78, 163)));
         }
-        foreach (var (title, count) in liveNumbers)
+        foreach (var (title, value, accent) in values)
+            cards.Children.Add(DashboardCard(title, value, accent));
+        root.Children.Add(cards);
+
+        if (live.StaffVisible)
         {
-            var tile = Stack();
-            tile.Children.Add(new TextBlock
-            {
-                Text = title, FontSize = 15, Foreground = _muted,
-                TextWrapping = TextWrapping.Wrap
-            });
-            tile.Children.Add(new TextBlock
-            {
-                Text = count.ToString("N0", CultureInfo.CurrentCulture), FontSize = 27,
-                FontWeight = FontWeights.Bold, Foreground = _primary,
-                Margin = new Thickness(0, 8, 0, 0)
-            });
-            var card = Box(tile);
-            card.Width = 235;
-            card.Margin = new Thickness(0, 0, 10, 10);
-            liveTiles.Children.Add(card);
+            var staffing = Stack();
+            staffing.Children.Add(Label("التوزيع الوظيفي حسب حالة العمل المسجلة", 16, true));
+            staffing.Children.Add(Label(
+                $"مباشر: {live.DirectStaff:N0}   |   منتدب/مكلف/معار: {live.SecondedStaff:N0}   |   إجازة أو حالة غير محددة: {live.UnclassifiedStaff:N0}", 15));
+            staffing.Children.Add(Label(
+                "هذا توزيع الكادر نفسه وليس إضافة أعداد جديدة إلى الإجمالي؛ الموظف المنتدب يظل في كشوف مدرسته.", 13));
+            root.Children.Add(Box(staffing, new Thickness(13)));
         }
-        root.Children.Add(liveTiles);
         if (live.StaffVisible && _actor.Role is not (Roles.Entry or Roles.Principal) &&
             live.DuplicateEmployeeCodes > 0)
             root.Children.Add(Box(Label(
-                $"تنبيه جودة البيانات: توجد {live.DuplicateEmployeeCodes} أرقام وظيفية مسجلة في أكثر من مدرسة. راجع تنبيهات كشف الكادر الموحد قبل اعتماد الأعداد.", 15, true)));
-        root.Children.Add(Label("الإحصاء الرسمي المعتمد (مستقل عن السجلات المباشرة)", 18, true));
-        root.Children.Add(Box(Label("تُحتسب أعداد الطلاب والمعلمين والفصول من الاستمارات المعتمدة فقط. الاستمارات غير المعتمدة لا تدخل في المجموع الرسمي.", 15)));
-        root.Children.Add(Box(Label("تنبيه أمني: النسخة الأولى محلية وغير مشفرة بعد؛ لا تستخدم بيانات شخصية حساسة حتى اكتمال متطلبات الإنتاج.", 14)));
-        root.Children.Add(Btn("تحديث المؤشرات", (_, _) => ShowDashboard()));
+                $"تنبيه جودة البيانات: توجد {live.DuplicateEmployeeCodes} أرقام وظيفية مرتبطة بأكثر من مدرسة. افتح كادر المدارس لتصحيحها دون فقد السجلات.", 15, true)));
+
+        root.Children.Add(Label("حالة الاعتماد الرسمي", 18, true));
+        var approvalCards = new WrapPanel { Margin = new Thickness(0, 8, 0, 12) };
+        approvalCards.Children.Add(DashboardCard("الإحصاء المعتمد", data.Approved,
+            Color.FromRgb(15, 126, 92)));
+        approvalCards.Children.Add(DashboardCard("الاستمارات قيد المراجعة", data.Submitted,
+            Color.FromRgb(168, 111, 32)));
+        root.Children.Add(approvalCards);
+        root.Children.Add(Label(
+            "إجماليات الطلاب والمعلمين والفصول في الإحصاء الرسمي تظهر في التقارير المعتمدة، ولا تتكرر هنا.", 13));
+
+        var actions = new WrapPanel { Margin = new Thickness(0, 6, 0, 8) };
+        actions.Children.Add(Btn("تحديث المؤشرات", (_, _) => ShowDashboard(), tone: "secondary"));
+        if (AccessPolicy.Has(_actor, PermissionFlags.ViewReports))
+            actions.Children.Add(Btn("فتح التقارير المعتمدة", (_, _) => ShowReports(), tone: "primary"));
+        root.Children.Add(actions);
+        root.Children.Add(Label(
+            "تنبيه أمني: قاعدة البيانات المحلية لم تُشفر بعد؛ احفظ نسخة احتياطية واحم بيانات الطلاب والموظفين.", 13));
         Display("لوحة التحكم", root);
     }
 
@@ -750,53 +769,154 @@ public partial class MainWindow : Window
         public string Girls { get; set; } = "";
     }
 
-    private static int Count(string text, string label)
-    {
-        if (!int.TryParse(text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int value) || value < 0)
-            throw new ArgumentException($"أدخل عددا صحيحا غير سالب في خانة {label}.");
-        return value;
-    }
+    private static int Count(string text, string label) =>
+        CensusNumberInput.ParseNonNegative(text, label);
 
     private static int[] GradesFor(School school)
     {
         return GradeNames.Allowed(school.Stage).ToArray();
     }
 
-    private void ShowCensus()
+    private void ShowCensus() => ShowCensusCore(null);
+
+    private void ShowCensusCore(string? preferredSchoolId)
     {
         var schools = _store.GetSchools(_actor).Where(s => s.IsActive).ToList();
         var root = Stack();
-        if (schools.Count == 0) { root.Children.Add(Label("لا توجد مدارس نشطة متاحة لهذا الحساب.")); Display("إحصاء الطلاب والمعلمين", root); return; }
-        root.Children.Add(Label("أدخل أعداد الطلاب حسب الصف والجنس، وأعداد المعلمين والفصول. اترك الصف غير المتوفر فارغا.", 14));
-        var combo = new ComboBox { ItemsSource = schools, DisplayMemberPath = "Name", Width = 390,
-            HorizontalAlignment = HorizontalAlignment.Left };
-        var heading = new WrapPanel { Children = { Label("المدرسة:", 15, true), combo } };
-        root.Children.Add(Box(heading));
-        var form = Stack();
-        var status = Label("", 14, true); form.Children.Add(status);
-        var editable = AccessPolicy.Has(_actor, PermissionFlags.EditCensus);
-        var lines = new ObservableCollection<EnrollmentInput>();
-        var table = GridFor(lines, ("المرحلة / الصف", "GradeName", false), ("ذكور", "Boys", true), ("إناث", "Girls", true));
-        table.IsReadOnly = !editable;
-        table.MaxHeight = 440;
-        form.Children.Add(table);
-        var counts = new WrapPanel();
-        var male = Field(width: 150); var female = Field(width: 150); var rooms = Field(width: 150);
-        male.IsReadOnly = !editable; female.IsReadOnly = !editable; rooms.IsReadOnly = !editable;
-        foreach (var (title, control) in new (string, UIElement)[] {
-            ("المعلمون الذكور", male), ("المعلمات", female), ("الفصول الدراسية", rooms) })
+        if (schools.Count == 0)
         {
-            var group = Stack(); group.Margin = new Thickness(4, 4, 10, 10);
-            group.Children.Add(Label(title, 13)); group.Children.Add(control); counts.Children.Add(group);
+            root.Children.Add(Label("لا توجد مدارس نشطة متاحة لهذا الحساب."));
+            Display("إحصاء الطلاب والمعلمين", root);
+            return;
         }
-        form.Children.Add(counts);
-        form.Children.Add(Label("ملاحظات المدرسة", 14));
-        var notes = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
-            MinHeight = 65, MaxHeight = 125, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            IsReadOnly = !editable };
+
+        root.Children.Add(Label("الاستمارة الإحصائية للمدرسة", 20, true));
+        root.Children.Add(Label(
+            "أدخل أعداد الطلاب لكل صف. يمكن كتابة الأرقام العربية (١٢٣) أو الإنجليزية (123)، وترك الحقول غير المستخدمة فارغة لتساوي صفرا.", 14));
+        var combo = new ComboBox
+        {
+            ItemsSource = schools, DisplayMemberPath = "Name", Width = 390,
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        root.Children.Add(Box(LineOfFields(("اختر المدرسة", combo))));
+
+        var form = Stack();
+        var status = Label("", 15, true);
+        status.Foreground = new SolidColorBrush(Color.FromRgb(9, 97, 130));
+        form.Children.Add(status);
+        // Ordinary field errors are shown in the current form, without a blocking
+        // Windows MessageBox. Programming errors still go through normal diagnostics.
+        void ValidateCensus(Action action)
+        {
+            try
+            {
+                action();
+                status.Foreground = new SolidColorBrush(Color.FromRgb(9, 109, 83));
+            }
+            catch (ArgumentException ex)
+            {
+                status.Foreground = new SolidColorBrush(Color.FromRgb(170, 45, 62));
+                status.Text = "راجع المدخلات: " + ex.Message;
+                ContentScroll.ScrollToTop();
+            }
+            catch (InvalidOperationException ex)
+            {
+                status.Foreground = new SolidColorBrush(Color.FromRgb(170, 45, 62));
+                status.Text = "تعذر تنفيذ الإجراء: " + ex.Message;
+                ContentScroll.ScrollToTop();
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                status.Foreground = new SolidColorBrush(Color.FromRgb(170, 45, 62));
+                status.Text = "الصلاحية غير متاحة: " + ex.Message;
+                ContentScroll.ScrollToTop();
+            }
+        }
+        var editable = AccessPolicy.Has(_actor, PermissionFlags.EditCensus);
+        var canReadRosters = AccessPolicy.Has(_actor, PermissionFlags.ViewStudents);
+        var lines = new ObservableCollection<EnrollmentInput>();
+
+        form.Children.Add(Label("1. أعداد الطلاب حسب الصف", 18, true));
+        form.Children.Add(Label(
+            "اترك الصف الذي لا توجد له بيانات فارغا، ويمكن ترك خانة الذكور أو الإناث فارغة عندما يكون العدد صفرا.", 13));
+        var table = GridFor(lines,
+            ("المرحلة / الصف", "GradeName", false),
+            ("الذكور", "Boys", true), ("الإناث", "Girls", true));
+        table.IsReadOnly = !editable;
+        table.MaxHeight = 410;
+        form.Children.Add(table);
+
+        form.Children.Add(Label("2. المعلمون والشعب الدراسية", 18, true));
+        form.Children.Add(Label(
+            "المقصود بالفصل هنا شعبة دراسية من صف معين، مثل أولى ثانوي / أ أو أولى ثانوي / ب؛ كل شعبة تُحسب فصلا مستقلا. لا يقصد عدد غرف المبنى.", 14));
+
+        var male = Field(width: 145);
+        var female = Field(width: 145);
+        var rooms = Field(width: 170);
+        male.ToolTip = "عدد المعلمين الذكور؛ الخانة الفارغة تعني صفر";
+        female.ToolTip = "عدد المعلمات؛ الخانة الفارغة تعني صفر";
+        rooms.ToolTip = "عدد الشعب/الفصول التعليمية، وليس عدد غرف المبنى؛ يمكنك تعبئته تلقائيا من كشوف المدرسة";
+        male.IsReadOnly = !editable;
+        female.IsReadOnly = !editable;
+        rooms.IsReadOnly = !editable;
+        form.Children.Add(LineOfFields(
+            ("المعلمون الذكور", male), ("المعلمات", female),
+            ("عدد الفصول التعليمية (الشعب)", rooms)));
+
+        var roomsHint = Label("", 13);
+        roomsHint.Foreground = new SolidColorBrush(Color.FromRgb(26, 111, 127));
+        form.Children.Add(roomsHint);
+        var assist = new WrapPanel { Margin = new Thickness(0, 5, 0, 10) };
+        assist.Children.Add(Btn("تعبئة عدد الشعب من كشوف المدرسة", (_, _) => ValidateCensus(() =>
+        {
+            if (combo.SelectedItem is not School selected) return;
+            var sections = _store.GetSchoolGrades(_actor, selected.Id);
+            var count = CensusNumberInput.CountRegisteredSections(sections);
+            if (count == 0)
+            {
+                roomsHint.Text = "لا توجد شعب مسجلة لهذه المدرسة في العام الحالي؛ يمكنك إدخال العدد يدويا أو إضافة الشعب من صفحة الطلاب والصفوف.";
+                return;
+            }
+            rooms.Text = count.ToString(CultureInfo.InvariantCulture);
+            roomsHint.Text = $"تم اقتراح {count} فصلا من كشوف الصفوف والشعب. راجع العدد قبل حفظ المسودة؛ لم تتغير الاستمارة الرسمية بعد.";
+        }), editable && canReadRosters, "secondary"));
+        assist.Children.Add(Btn("تعبئة أعداد الطلاب من الكشوف الحالية", (_, _) => ValidateCensus(() =>
+        {
+            if (combo.SelectedItem is not School selected) return;
+            var suggested = CensusNumberInput.SuggestGradeTotals(
+                _store.GetStudents(_actor, selected.Id), _store.AcademicYear);
+            if (suggested.Count == 0)
+            {
+                roomsHint.Text = "لا توجد سجلات طلاب نشطة في العام الدراسي الحالي يمكن الاستفادة منها.";
+                return;
+            }
+            if (MessageBox.Show(
+                "سيتم تعبئة أعداد الصفوف التي لها طلاب نشطون من كشوف هذه المدرسة، مع الإبقاء على بقية الصفوف دون تغيير. لن تُحفظ الاستمارة حتى تضغط «حفظ المسودة». هل تواصل؟",
+                "مراجعة الأعداد قبل التعبئة", MessageBoxButton.YesNo,
+                MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            foreach (var line in lines)
+            {
+                var grade = int.Parse(line.Grade, CultureInfo.InvariantCulture);
+                if (!suggested.TryGetValue(grade, out var totals)) continue;
+                line.Boys = totals.Boys.ToString(CultureInfo.InvariantCulture);
+                line.Girls = totals.Girls.ToString(CultureInfo.InvariantCulture);
+            }
+            table.Items.Refresh();
+            roomsHint.Text = "تمت تعبئة أعداد الطلاب النشطين في الصفوف ذات السجلات؛ راجعها ثم احفظ المسودة للمراجعة الرسمية.";
+        }), editable && canReadRosters, "secondary"));
+        form.Children.Add(assist);
+
+        form.Children.Add(Label("3. ملاحظات المدرسة", 17, true));
+        var notes = new TextBox
+        {
+            AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
+            MinHeight = 80, MaxHeight = 130,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto, IsReadOnly = !editable
+        };
         form.Children.Add(notes);
-        var actions = new WrapPanel();
-        actions.Children.Add(Btn("حفظ المسودة", (_, _) => Safe(() =>
+
+        var actions = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
+        actions.Children.Add(Btn("حفظ المسودة", (_, _) => ValidateCensus(() =>
         {
             if (combo.SelectedItem is not School selected) return;
             table.CommitEdit(DataGridEditingUnit.Cell, true);
@@ -804,27 +924,34 @@ public partial class MainWindow : Window
             var rows = new List<EnrollmentLine>();
             foreach (var item in lines)
             {
-                if (string.IsNullOrWhiteSpace(item.Boys) && string.IsNullOrWhiteSpace(item.Girls)) continue;
-                if (string.IsNullOrWhiteSpace(item.Boys) || string.IsNullOrWhiteSpace(item.Girls))
-                    throw new ArgumentException($"الصف {item.Grade}: أدخل الذكور والإناث، ولو كانت القيمة صفرا.");
-                rows.Add(new EnrollmentLine(item.Grade, Count(item.Boys, "ذكور الصف " + item.Grade),
-                    Count(item.Girls, "إناث الصف " + item.Grade)));
+                if (string.IsNullOrWhiteSpace(item.Boys) && string.IsNullOrWhiteSpace(item.Girls))
+                    continue;
+                rows.Add(new EnrollmentLine(item.Grade,
+                    Count(item.Boys, "ذكور صف " + item.GradeName),
+                    Count(item.Girls, "إناث صف " + item.GradeName)));
             }
-            var census = new CensusData(rows, Count(male.Text, "المعلمين الذكور"),
-                Count(female.Text, "المعلمات"), Count(rooms.Text, "الفصول"), notes.Text);
+            var census = new CensusData(rows,
+                Count(male.Text, "المعلمين الذكور"),
+                Count(female.Text, "المعلمات"),
+                Count(rooms.Text, "عدد الفصول التعليمية (الشعب)"),
+                notes.Text);
             _store.SaveDraft(_actor, selected.Id, census);
-            Info("تم حفظ مسودة الإحصاء بنجاح."); ShowCensus();
-        }), editable));
-        actions.Children.Add(Btn("رفع الإحصاء للمراجعة", (_, _) => Safe(() =>
+            var latest = _store.GetLatestSubmission(_actor, selected.Id);
+            status.Text = latest is null
+                ? "تم حفظ البيانات بنجاح."
+                : $"تم حفظ المسودة بنجاح — المراجعة {latest.Revision}. يمكن الآن رفعها للمراجعة.";
+        }), editable, "success"));
+        actions.Children.Add(Btn("رفع المسودة للمراجعة", (_, _) => ValidateCensus(() =>
         {
             if (combo.SelectedItem is not School selected) return;
-            var current = _store.GetLatestSubmission(_actor, selected.Id)
-                ?? throw new InvalidOperationException("يجب حفظ المسودة أولا.");
-            _store.ChangeStatus(_actor, current.Id, "submit");
-            Info("تم إرسال الإحصاء للمراجعة."); ShowCensus();
-        }), editable));
+            var latest = _store.GetLatestSubmission(_actor, selected.Id)
+                ?? throw new InvalidOperationException("احفظ المسودة أولا قبل رفعها للمراجعة.");
+            _store.ChangeStatus(_actor, latest.Id, "submit");
+            ShowCensusCore(selected.Id);
+        }), editable, "warning"));
         form.Children.Add(actions);
         root.Children.Add(Box(form));
+
         combo.SelectionChanged += (_, _) =>
         {
             if (combo.SelectedItem is not School school) return;
@@ -832,22 +959,43 @@ public partial class MainWindow : Window
             var latest = _store.GetLatestSubmission(_actor, school.Id);
             foreach (var grade in GradesFor(school))
             {
-                var previous = latest?.Data.Rows.FirstOrDefault(x => x.Grade == grade.ToString(CultureInfo.InvariantCulture));
-                lines.Add(new EnrollmentInput { Grade = grade.ToString(CultureInfo.InvariantCulture),
+                var previous = latest?.Data.Rows.FirstOrDefault(x =>
+                    x.Grade == grade.ToString(CultureInfo.InvariantCulture));
+                lines.Add(new EnrollmentInput
+                {
+                    Grade = grade.ToString(CultureInfo.InvariantCulture),
                     GradeName = GradeNames.ForStage(school.Stage, grade),
                     Boys = previous?.Boys.ToString(CultureInfo.InvariantCulture) ?? "",
-                    Girls = previous?.Girls.ToString(CultureInfo.InvariantCulture) ?? "" });
+                    Girls = previous?.Girls.ToString(CultureInfo.InvariantCulture) ?? ""
+                });
             }
             male.Text = latest?.Data.MaleTeachers.ToString(CultureInfo.InvariantCulture) ?? "";
             female.Text = latest?.Data.FemaleTeachers.ToString(CultureInfo.InvariantCulture) ?? "";
             rooms.Text = latest?.Data.Classrooms.ToString(CultureInfo.InvariantCulture) ?? "";
             notes.Text = latest?.Data.Notes ?? "";
-            status.Text = latest is null ? "لم تبدأ الاستمارة" :
+            status.Text = latest is null ? "لم تبدأ الاستمارة — أدخل الأعداد أو استخدم تعبئة الكشوف." :
                 $"الحالة: {StatusName(latest.Status)} — المراجعة رقم {latest.Revision}" +
                 (latest.DecisionReason is null ? "" : $" — السبب: {latest.DecisionReason}");
+            if (canReadRosters)
+            {
+                var count = CensusNumberInput.CountRegisteredSections(
+                    _store.GetSchoolGrades(_actor, school.Id));
+                if (count > 0)
+                {
+                    if (latest is null && editable)
+                        rooms.Text = count.ToString(CultureInfo.InvariantCulture);
+                    roomsHint.Text = $"تضم كشوف هذه المدرسة {count} شعبة مسجلة للعام الحالي." +
+                        (latest is null ? " اقترحنا العدد في الحقل ويمكنك تعديله." :
+                            " يبقى العدد المحفوظ في الاستمارة كما هو حتى تختار تحديثه.");
+                }
+                else
+                    roomsHint.Text = "لم تُسجل شعب للعام الحالي؛ أدخل عدد الفصول يدويا، أو أضفها في صفحة الطلاب والصفوف ثم استخدم زر التعبئة.";
+            }
+            else
+                roomsHint.Text = "يمكن إدخال عدد الفصول يدويا؛ جلب الشعب من سجلات الطلاب يتطلب صلاحية الاطلاع عليها.";
         };
         Display("إحصاء الطلاب والمعلمين", root);
-        combo.SelectedIndex = 0;
+        combo.SelectedItem = schools.FirstOrDefault(x => x.Id == preferredSchoolId) ?? schools[0];
     }
 
     private sealed class ReviewLine
