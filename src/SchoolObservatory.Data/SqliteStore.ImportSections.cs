@@ -53,8 +53,7 @@ public sealed partial class SqliteStore
                 if(!GradeNames.TryParse(gradeText,out var grade) ||
                     !GradeNames.Allowed(school.Fields["stage"]).Contains(grade))
                     throw new ArgumentException("العمود الصف: الصف غير صحيح لمرحلة المدرسة.");
-                if(string.IsNullOrWhiteSpace(section) || section.Length>25)
-                    throw new ArgumentException("العمود الشعبة: يجب تحديد شعبة صحيحة.");
+                section=SectionName(section);
                 gradeText=grade.ToString(CultureInfo.InvariantCulture);
                 key=schoolCode+"/"+gradeText+"/"+section;
                 status=state.Grades.TryGetValue(GradeKey(school.Id,gradeText,section),out id)
