@@ -318,14 +318,18 @@ public sealed partial class SqliteStore
                 ("$phone",RequiredImport(v,"guardian_phone")),("$now",Utc())))
                 if(update.ExecuteNonQuery()!=1)
                     throw new InvalidOperationException("تعذر تحديث هوية الطالب أثناء الدفعة.");
+            // A student import may correct identity fields, but may NOT perform
+            // grade/section transfers or rewrite academic placement timestamps.
+            // Those are exclusively managed by the controlled Phase 2 workflow.
             using(var placement=Cmd(con,tx,"""
-                UPDATE student_enrollments SET grade_id=$grade,updated_utc=$now
-                WHERE student_id=$id AND school_id=$school AND academic_year=$year
-                  AND status='مسجل'
-                """,("$id",id),("$school",schoolId),("$year",year),
-                ("$grade",gradeId),("$now",Utc())))
-                if(placement.ExecuteNonQuery()!=1)
-                    throw new InvalidOperationException("قيد الطالب الدراسي غير متاح؛ راجع النقل والترفيع.");
+                SELECT EXISTS(
+                    SELECT 1 FROM student_enrollments
+                    WHERE student_id=$id AND school_id=$school AND academic_year=$year
+                      AND grade_id=$grade AND status='مسجل')
+                """,("$id",id),("$school",schoolId),("$year",year),("$grade",gradeId)))
+                if(Convert.ToInt32(placement.ExecuteScalar(),CultureInfo.InvariantCulture)!=1)
+                    throw new InvalidOperationException(
+                        "القيد الدراسي لم يعد مطابقا للمعاينة؛ استخدم إجراء النقل أو الترفيع وليس الاستيراد.");
         }
     }
 }
