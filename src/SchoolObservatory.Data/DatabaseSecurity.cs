@@ -359,7 +359,7 @@ public static class DatabaseSecurity
             if (File.Exists(db + "-wal") || File.Exists(db + "-shm"))
                 throw new IOException("Active WAL sidecars remain; close other instances before migrating.");
 
-            File.Replace(candidate, db, original);
+            AtomicReplace(candidate, db, original);
             replaced = true;
             using (var verified = OpenEncrypted(db, key))
             {
@@ -414,6 +414,27 @@ public static class DatabaseSecurity
             "school_staff", "school_students", "student_results" })
             if (!counts.ContainsKey(required))
                 throw new InvalidDataException("Recovery source is not a complete School Observatory database.");
+    }
+
+    /// <summary>Windows may briefly retain an SQLite VFS sharing handle while closing.</summary>
+    internal static void AtomicReplace(string candidate, string current, string rollback)
+    {
+        IOException? last = null;
+        for (var retry = 0; retry < 8; retry++)
+        {
+            try
+            {
+                File.Replace(candidate, current, rollback);
+                return;
+            }
+            catch (IOException ex)
+            {
+                last = ex;
+                if (retry == 7) break;
+                System.Threading.Thread.Sleep(75 * (retry + 1));
+            }
+        }
+        throw new IOException("Could not atomically promote the verified SQLite snapshot; existing data remains intact.", last);
     }
 
     internal static void VacuumToEncrypted(SqliteConnection source, string output, string passphrase)
