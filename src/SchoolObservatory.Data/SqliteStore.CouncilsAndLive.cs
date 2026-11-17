@@ -140,6 +140,30 @@ public sealed partial class SqliteStore
         var canViewStaff = AccessPolicy.Has(actor, PermissionFlags.ViewStaff);
         using var con = Open();
         using var cmd = Cmd(con, null, """
+            WITH effective_work AS (
+              SELECT st.id,st.school_id,st.is_active,
+                     CASE
+                       WHEN a.id IS NULL OR a.assignment_type='إجازة' THEN 'unknown'
+                       WHEN a.start_date IS NULL AND
+                            a.notes IN ('سجل أصلي','سجل أصلي مرحل')
+                         THEN CASE
+                           WHEN p.assignment_status='مباشر' THEN 'direct'
+                           WHEN p.assignment_status IN ('منتدب','مكلف','معار')
+                             THEN 'seconded'
+                           ELSE 'unknown'
+                         END
+                       WHEN a.workplace_school_id=st.school_id THEN 'direct'
+                       ELSE 'seconded'
+                     END AS work_status
+              FROM school_staff st
+              LEFT JOIN staff_personnel_details p ON p.staff_id=st.id
+              LEFT JOIN employee_assignments a ON a.id=(
+                  SELECT cur.id FROM employee_assignments cur
+                  WHERE cur.employee_id=st.id
+                    AND (cur.start_date IS NULL OR cur.start_date<=$today)
+                    AND (cur.end_date IS NULL OR cur.end_date>=$today)
+                  ORDER BY cur.start_date DESC,cur.created_utc DESC LIMIT 1)
+            )
             SELECT
               (SELECT COUNT(*) FROM schools s WHERE s.is_active=1
                   AND ($scope IS NULL OR s.id=$scope)),
@@ -164,18 +188,17 @@ public sealed partial class SqliteStore
               (SELECT COUNT(*) FROM school_council_members c JOIN schools s ON s.id=c.school_id
                WHERE c.is_active=1 AND s.is_active=1
                  AND ($scope IS NULL OR s.id=$scope)),
-              (SELECT COUNT(*) FROM school_staff st JOIN schools s ON s.id=st.school_id
-                JOIN staff_personnel_details p ON p.staff_id=st.id
-                WHERE st.is_active=1 AND s.is_active=1 AND p.assignment_status='مباشر'
+              (SELECT COUNT(*) FROM effective_work e
+                JOIN schools s ON s.id=e.school_id
+                WHERE e.is_active=1 AND s.is_active=1 AND e.work_status='direct'
                   AND ($scope IS NULL OR s.id=$scope)),
-              (SELECT COUNT(*) FROM school_staff st JOIN schools s ON s.id=st.school_id
-                JOIN staff_personnel_details p ON p.staff_id=st.id
-                WHERE st.is_active=1 AND s.is_active=1 AND p.assignment_status IN ('منتدب','مكلف','معار')
+              (SELECT COUNT(*) FROM effective_work e
+                JOIN schools s ON s.id=e.school_id
+                WHERE e.is_active=1 AND s.is_active=1 AND e.work_status='seconded'
                   AND ($scope IS NULL OR s.id=$scope)),
-              (SELECT COUNT(*) FROM school_staff st JOIN schools s ON s.id=st.school_id
-                LEFT JOIN staff_personnel_details p ON p.staff_id=st.id
-                WHERE st.is_active=1 AND s.is_active=1
-                  AND COALESCE(p.assignment_status,'غير محدد') NOT IN ('مباشر','منتدب','مكلف','معار')
+              (SELECT COUNT(*) FROM effective_work e
+                JOIN schools s ON s.id=e.school_id
+                WHERE e.is_active=1 AND s.is_active=1 AND e.work_status='unknown'
                   AND ($scope IS NULL OR s.id=$scope)),
               (SELECT CASE WHEN $scope IS NOT NULL THEN 0 ELSE COUNT(*) END
                FROM (
@@ -185,7 +208,8 @@ public sealed partial class SqliteStore
                   HAVING COUNT(DISTINCT school_id)>1
                ))
             """, ("$scope", actor.Role is Roles.Entry or Roles.Principal ? actor.SchoolId : null),
-            ("$year", AcademicYear));
+            ("$year", AcademicYear),
+            ("$today", DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
         using var r = cmd.ExecuteReader();
         if (!r.Read()) throw new InvalidOperationException("تعذر حساب المؤشرات المباشرة.");
         int Number(int column) => checked((int)r.GetInt64(column));

@@ -1189,6 +1189,19 @@ public sealed partial class SqliteStore
             ("$qyear", record.QualificationYear), ("$eyear", record.EmploymentYear),
             ("$cyear", record.ContractYear), ("$at", Utc()), ("$id", record.EmployeeId)))
             cmd.ExecuteNonQuery();
+        // The original school's staff listing is a live view of the same employee.
+        // Keep the duplicated legacy display columns synchronized transactionally.
+        using (var staff = Cmd(con, tx, """
+            UPDATE school_staff
+            SET qualification=$qualification,specialization=$specialization,updated_utc=$at
+            WHERE id=$id AND school_id=$school
+            """, ("$qualification", record.Qualification.Trim()),
+            ("$specialization", record.Specialization.Trim()), ("$at", Utc()),
+            ("$id", record.EmployeeId), ("$school", original.OriginalPayrollSchoolId)))
+        {
+            if (staff.ExecuteNonQuery() != 1)
+                throw new InvalidOperationException("تعذر مزامنة ملف الموظف مع كشف مدرسته الأصلية.");
+        }
         Audit(con, tx, actor.Id, "employee.career", record.EmployeeId, "Career metadata updated");
         tx.Commit();
     }

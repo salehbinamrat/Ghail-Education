@@ -43,6 +43,11 @@ public partial class MainWindow : Window
         if (AccessPolicy.Has(actor, PermissionFlags.EditCensus) || AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("إحصاء الطلاب والمعلمين", ShowCensus);
         if (AccessPolicy.Has(actor, PermissionFlags.ApproveSchool) || AccessPolicy.Has(actor, PermissionFlags.ApproveDistrict) || AccessPolicy.Has(actor, PermissionFlags.ReviewCensus)) AddNav("مراجعة واعتماد الإحصاء", ShowReviews);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewReports)) AddNav("التقارير والتصدير", ShowReports);
+        if (AccessPolicy.Has(actor, PermissionFlags.ViewReports) &&
+            AccessPolicy.Has(actor, PermissionFlags.ViewStudents) &&
+            AccessPolicy.Has(actor, PermissionFlags.ViewStaff) &&
+            AccessPolicy.Has(actor, PermissionFlags.ViewSchools))
+            AddNav("مطابقة السجلات والإحصاء", ShowReconciliation);
         if (AccessPolicy.CanCreateUsers(actor)) AddNav("إدارة المستخدمين", ShowUsers);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewAudit)) AddNav("سجل العمليات", ShowAudit);
         if (actor.IsOwner) AddNav("النسخ الاحتياطي والاستعادة", ShowBackups);
@@ -360,9 +365,13 @@ public partial class MainWindow : Window
         actions.Children.Add(Btn("تحديث المؤشرات", (_, _) => ShowDashboard(), tone: "secondary"));
         if (AccessPolicy.Has(_actor, PermissionFlags.ViewReports))
             actions.Children.Add(Btn("فتح التقارير المعتمدة", (_, _) => ShowReports(), tone: "primary"));
+        if (AccessPolicy.Has(_actor, PermissionFlags.ViewReports) &&
+            AccessPolicy.Has(_actor, PermissionFlags.ViewStudents) &&
+            AccessPolicy.Has(_actor, PermissionFlags.ViewStaff))
+            actions.Children.Add(Btn("مطابقة السجلات مع الإحصاء", (_, _) => ShowReconciliation(), tone: "secondary"));
         root.Children.Add(actions);
         root.Children.Add(Label(
-            "تنبيه أمني: قاعدة البيانات المحلية لم تُشفر بعد؛ احفظ نسخة احتياطية واحم بيانات الطلاب والموظفين.", 13));
+            "الحفظ محلي ومشفر. تتغير المؤشرات التشغيلية مباشرة من السجلات؛ الإحصاء الرسمي المعتمد يحتفظ بتاريخ اعتماده.", 13));
         Display("لوحة التحكم", root);
     }
 
