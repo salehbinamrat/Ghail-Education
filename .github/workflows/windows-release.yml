@@ -29,6 +29,7 @@ jobs:
         shell: pwsh
         run: |
           foreach ($arch in @('x86','x64')) {
+            $env:SCHOOL_OBSERVATORY_EXPECTED_ARCH = $arch
             dotnet test tests/SchoolObservatory.Tests/SchoolObservatory.Tests.csproj --configuration Release --arch $arch --filter "FullyQualifiedName~DatabaseSecurityPhase1Tests" --logger "trx;LogFileName=security-$arch.trx"
             if ($LASTEXITCODE -ne 0) { throw "Native $arch encryption/recovery tests failed: packaging forbidden" }
           }
