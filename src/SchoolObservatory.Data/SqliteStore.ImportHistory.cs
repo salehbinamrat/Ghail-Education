@@ -164,6 +164,17 @@ public sealed partial class SqliteStore
                 if(Convert.ToInt32(newer.ExecuteScalar(),CultureInfo.InvariantCulture)!=0)
                     throw new InvalidOperationException(
                         $"صف {change.Row}: توجد عملية لاحقة مسجلة على هذا السجل؛ رفض التراجع حفاظا عليها.");
+            using(var subsequent=Cmd(con,tx,"""
+                SELECT EXISTS(
+                    SELECT 1 FROM import_changes later
+                    JOIN import_batches batch ON batch.id=later.batch_id
+                    WHERE later.entity_id=$entity AND later.batch_id<>$batch
+                      AND batch.imported_utc>=$since)
+                """,("$entity",change.Id),("$batch",batchId),("$since",appliedAt)))
+                if(Convert.ToInt32(subsequent.ExecuteScalar(),CultureInfo.InvariantCulture)!=0)
+                    throw new InvalidOperationException(
+                        $"صف {change.Row}: توجد دفعة استيراد لاحقة على السجل؛ لا يجوز التراجع حتى لو تساوت القيم الحالية.");
+
         }
         // No partial reversal: all preconditions and every SQL write share one transaction.
         try
