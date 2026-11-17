@@ -36,7 +36,7 @@ The complete programmatic metric catalog is `EducationalMetricCatalog` in `Phase
 - A missing approved census is **NULL** (unavailable), never an invented official zero.
 - The difference for comparable metrics is `operational - approved`. Nonzero differences are flagged with source metadata. The approved submission ID is preserved for traceability.
 - Reconciliation compares students in registered rosters, boys/girls, registered sections, and **current** actual working teachers against the latest approved census for the active academic year; payroll counts are displayed separately for context.
-- In a historical year student placements and sections remain year-scoped; **present-day staffing is not treated as historical staffing**. No historical teacher difference is asserted without a dated staffing snapshot.
+- In a historical year student placements and sections remain year-scoped; later global student archiving does **not** erase the earlier year's student count. The active-year roster excludes currently archived identities. **Present-day staffing is not treated as historical staffing**: no historical teacher difference is asserted without a dated staffing snapshot.
 - A difference does **not** prove data corruption: official census counts may describe an earlier snapshot date. Investigation must compare the roster's effective date and the official census's snapshot.
 - The reconciliation page shows school, category, year, current count, approved count, difference and status; selecting a row shows the source and formula. The review button requires an explicitly authorized reviewer, a reason and confirmation. It creates a dated audit event, **never adjusts an approved form**.
 
