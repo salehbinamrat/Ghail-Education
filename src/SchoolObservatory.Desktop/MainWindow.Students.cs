@@ -76,7 +76,8 @@ public partial class MainWindow
         };
         root.Children.Add(Box(LineOfFields(("المدرسة", schoolPicker), ("الصف والشعبة", gradePicker))));
         var selectedCount = Label("عدد الطلاب في الكشف: 0", 14, true);
-        root.Children.Add(selectedCount);
+        selectedCount.Foreground = new SolidColorBrush(Color.FromRgb(5, 91, 131));
+        root.Children.Add(Box(selectedCount, new Thickness(12)));
         var search = Field(width: 285);
         search.ToolTip = "بحث فوري باسم الطالب أو رقمه في الكشف الحالي";
         root.Children.Add(Box(LineOfFields(("بحث في كشف الصف", search)), new Thickness(12)));
@@ -156,30 +157,32 @@ public partial class MainWindow
         {
             var selectedSchool = schoolPicker.SelectedItem as School;
             var selectedGrade = gradePicker.SelectedItem as SchoolGrade;
-            if (selectedSchool is null)
+            if (selectedSchool is null || selectedGrade is null)
             {
                 roster.ItemsSource = Array.Empty<StudentRosterItem>();
                 rosterCache = Array.Empty<SchoolStudent>();
                 cachedSchoolId = null;
                 cachedGradeId = null;
-                selectedCount.Text = "عدد الطلاب في الكشف: 0";
+                selectedCount.Text = selectedSchool is null
+                    ? "اختر المدرسة لعرض كشوف الطلاب."
+                    : "لا يوجد كشف محدد. أضف صفا وشعبة أو اختر كشفا موجودا.";
+                editor.IsEnabled = false;
+                exportRoster.IsEnabled = false;
                 return;
             }
-            if (reload || cachedSchoolId != selectedSchool.Id || cachedGradeId != selectedGrade?.Id)
+            if (reload || cachedSchoolId != selectedSchool.Id || cachedGradeId != selectedGrade.Id)
             {
-                rosterCache = _store.GetStudents(_actor, selectedSchool.Id, selectedGrade?.Id);
+                rosterCache = _store.GetStudents(_actor, selectedSchool.Id, selectedGrade.Id);
                 cachedSchoolId = selectedSchool.Id;
-                cachedGradeId = selectedGrade?.Id;
+                cachedGradeId = selectedGrade.Id;
             }
             var students = rosterCache;
             var filter = search.Text.Trim();
-            var visible = students.Where(s => filter.Length == 0 ||
-                s.FullName.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
-                s.StudentCode.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToArray();
+            var visible = SchoolStudentSearch.Find(students, filter);
             roster.ItemsSource = visible.Select(s => new StudentRosterItem(s)).ToArray();
             selectedCount.Text = filter.Length == 0
                 ? $"عدد الطلاب في الكشف: {students.Count}"
-                : $"نتائج البحث: {visible.Length} من أصل {students.Count} طالب";
+                : $"نتائج البحث: {visible.Count} من أصل {students.Count} طالب";
             editor.IsEnabled = AccessPolicy.CanManageStudents(_actor, selectedSchool.Id) &&
                 selectedGrade is not null;
             exportRoster.IsEnabled = editor.IsEnabled;
@@ -231,14 +234,26 @@ public partial class MainWindow
         {
             search.Clear(); ResetEditor(); RefreshRoster();
         });
-        roster.SelectionChanged += (_, _) =>
+        void OpenSelectedStudent()
         {
             if (roster.SelectedItem is StudentRosterItem selected &&
                 schoolPicker.SelectedItem is School school)
                 Safe(() => ShowStudentProfile(school, selected.Student.Id));
+            else
+                Info("حدد طالبا من الكشف ثم اضغط «فتح ملف الطالب المحدد» أو انقر نقرا مزدوجا على اسمه.");
+        }
+        // Keyboard navigation and sorting must not unexpectedly open another student's file.
+        roster.MouseDoubleClick += (_, e) =>
+        {
+            DependencyObject? origin = e.OriginalSource as DependencyObject;
+            while (origin is not null && origin is not DataGridRow && origin != roster)
+                origin = VisualTreeHelper.GetParent(origin);
+            if (origin is DataGridRow) OpenSelectedStudent();
         };
 
         var actions = new WrapPanel();
+        actions.Children.Add(Btn("فتح ملف الطالب المحدد", (_, _) => OpenSelectedStudent(),
+            tone: "secondary"));
         actions.Children.Add(Btn("مسح الحقول / طالب جديد", (_, _) => ResetEditor(), tone: "secondary"));
         actions.Children.Add(Btn("حفظ بيانات الطالب", (_, _) => Safe(() =>
         {
@@ -259,9 +274,15 @@ public partial class MainWindow
         var import = Stack();
         import.Children.Add(Label("استيراد كشف الطلاب من Excel أو Word", 16, true));
         import.Children.Add(Label("يدعم .xlsx و.docx المنظمة. يلزم رقم الطالب والاسم والصف، وتُقبل الشعبة والجنس ورمز المدرسة وولي الأمر كأعمدة إضافية. أضف الصف والشعبة قبل الاستيراد.", 13));
+        bool isImporting = false;
         import.Children.Add(Btn("اختيار ملف واستيراد الطلاب", async (_, _) =>
         {
+            if (isImporting) return;
             if (schoolPicker.SelectedItem is not School school) return;
+            isImporting = true;
+            import.IsEnabled = false;
+            schoolPicker.IsEnabled = false;
+            gradePicker.IsEnabled = false;
             try
             {
                 var dialog = new OpenFileDialog
@@ -289,6 +310,14 @@ public partial class MainWindow
             {
                 MessageBox.Show(ex.Message, "تعذر استيراد كشف الطلاب",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally
+            {
+                isImporting = false;
+                schoolPicker.IsEnabled = true;
+                gradePicker.IsEnabled = true;
+                import.IsEnabled = schoolPicker.SelectedItem is School current &&
+                    AccessPolicy.CanManageStudents(_actor, current.Id);
             }
         }, tone: "secondary"));
         root.Children.Add(Box(import));
