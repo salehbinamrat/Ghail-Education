@@ -468,6 +468,23 @@ public partial class MainWindow : Window
                 });
                 Info("تم حفظ بيانات المدرسة."); ShowSchools();
             })));
+            if (_actor.IsOwner)
+                buttons.Children.Add(Btn("حذف نهائي لمدرسة مؤرشفة وخالية فقط",(_,_)=>Safe(()=>
+                {
+                    if(selected is null)
+                        throw new InvalidOperationException("حدد مدرسة من الجدول أولا.");
+                    if(selected.IsActive)
+                        throw new InvalidOperationException("أرشف المدرسة واحفظها قبل الحذف النهائي.");
+                    if(MessageBox.Show(
+                        $"طلب حذف المدرسة المؤرشفة: {selected.Name}؟\\n" +
+                        "لن يسمح بالحذف إذا وُجد أي سجل دراسي أو وظيفي أو إحصائي أو سجل استيراد مرتبط بها. " +
+                        "للتأكيد يجب أن يطابق رمز المدرسة في حقل الرمز بياناتها الأصلية.",
+                        "حذف نهائي — للمسؤول المؤسس فقط",MessageBoxButton.YesNo,
+                        MessageBoxImage.Stop)!=MessageBoxResult.Yes)return;
+                    _store.DeleteEmptySchool(_actor,selected.Id,code.Text.Trim());
+                    Info("حُذفت المدرسة الخالية بعد فحص جميع المراجع.");
+                    ShowSchools();
+                }),tone:"danger"));
             buttons.Children.Add(Btn("معالج استيراد المدارس (CSV / Excel / Word)",
                 (_,_) => ShowImportWizard(ImportEntity.Schools),tone:"secondary"));
             buttons.Children.Add(Btn("مسح الحقول", (_, _) =>
