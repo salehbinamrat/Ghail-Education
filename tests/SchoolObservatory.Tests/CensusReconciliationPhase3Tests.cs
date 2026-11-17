@@ -104,6 +104,24 @@ public sealed class CensusReconciliationPhase3Tests
     }
 
     [Fact]
+    public void LaterArchiveDoesNotRewriteEarlierAcademicYearRoster()
+    {
+        var (db, owner, school, _) = Setup();
+        db.AddSchoolGrade(owner, school.Id, 1, "أ");
+        db.SaveStudent(owner, new SchoolStudent("", school.Id, "", "طالب قديم", 1, "أ",
+            "", "", "", "", true, "2026/2027"));
+        var original = Assert.Single(db.GetStudents(owner, school.Id));
+        db.OpenAcademicYear(owner, "2027/2028");
+        db.ActivateAcademicYear(owner, "2027/2028");
+        db.AddSchoolGrade(owner, school.Id, 2, "أ");
+        db.PromoteStudent(owner, original.Id, school.Id, 2, "أ", repeat: false);
+        var current = Assert.Single(db.GetStudents(owner, school.Id));
+        db.SaveStudent(owner, current with { IsActive = false });
+        Assert.Equal(0, db.GetSchoolOperationalSnapshot(owner, school.Id, "2027/2028").ActiveStudents);
+        Assert.Equal(1, db.GetSchoolOperationalSnapshot(owner, school.Id, "2026/2027").ActiveStudents);
+    }
+
+    [Fact]
     public void WorkplaceCountsDifferFromPayrollCountsWithoutCreatingAnotherPerson()
     {
         var (db, owner, a, b) = Setup();
