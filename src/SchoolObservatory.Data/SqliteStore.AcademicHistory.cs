@@ -342,6 +342,28 @@ public sealed partial class SqliteStore
         tx.Commit();
     }
 
+    public IReadOnlyList<SchoolStudent> GetStudentsInAcademicYear(UserAccount actor,
+        string schoolId, string year)
+    {
+        RequireFreshActor(actor);
+        if (!AccessPolicy.CanSeeStudents(actor, schoolId)) throw new UnauthorizedAccessException();
+        ValidateAcademicYear(year);
+        using var con=Open();
+        using var cmd=Cmd(con,null, """
+            SELECT st.id,st.school_id,st.student_code,st.full_name,g.grade,g.section,
+                   st.gender,st.guardian_name,st.guardian_phone,st.notes,st.is_active,en.academic_year
+            FROM school_students st
+            JOIN student_enrollments en ON en.student_id=st.id AND en.school_id=st.school_id
+            JOIN school_grades g ON g.id=en.grade_id AND g.school_id=en.school_id
+            WHERE st.school_id=$school AND en.academic_year=$year
+            ORDER BY g.grade,g.section,st.full_name
+            """,("$school",schoolId),("$year",year));
+        using var reader=cmd.ExecuteReader();
+        var list=new List<SchoolStudent>();
+        while(reader.Read()) list.Add(ReadStudent(reader));
+        return list;
+    }
+
     public IReadOnlyList<StudentPlacementHistory> GetStudentHistory(UserAccount actor, string schoolId, string studentId)
     {
         RequireFreshActor(actor);
