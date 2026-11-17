@@ -19,7 +19,7 @@ public sealed partial class SqliteStore
         using var con = Open();
         using var cmd = Cmd(con, null, """
             WITH ranked AS (
-                SELECT st.id,h.school_id,COALESCE(local.student_code,st.student_code),st.full_name,
+                SELECT st.id,h.school_id,COALESCE(local.student_code,st.student_code) AS student_code,st.full_name,
                     g.grade,g.section,st.gender,st.guardian_name,st.guardian_phone,
                     st.notes,st.is_active,h.academic_year,
                     ROW_NUMBER() OVER (
