@@ -399,6 +399,7 @@ public partial class MainWindow : Window
         var data = _store.GetSchools(_actor);
         root.Children.Add(Label($"عدد المدارس الظاهرة: {data.Count} — حسب الصلاحيات المحددة لحسابك", 15));
         School? selected = null;
+        Action? restoreSchoolDraft = null;
         var schoolSearch = Field(_navigationContext.Get("schools.search"), width: 335);
         schoolSearch.ToolTip = "ابحث برمز المدرسة أو اسمها أو المنطقة أو المرحلة";
         root.Children.Add(Box(LineOfFields(("بحث سريع في دليل المدارس", schoolSearch))));
@@ -458,6 +459,54 @@ public partial class MainWindow : Window
                 validation.Show(SchoolFormValidator.Validate(code.Text, name.Text, zone.Text,
                     ownership.SelectedItem?.ToString(), stage.SelectedItem?.ToString(),
                     gender.SelectedItem?.ToString()), editors);
+
+            // Restore only non-secret, in-memory school form values after restoring the
+            // selected record. Database writes still require the explicit Save button.
+            var hadDraft = _navigationContext.Get("schools.draft.exists") == "1";
+            var draftCode = _navigationContext.Get("schools.draft.code");
+            var draftName = _navigationContext.Get("schools.draft.name");
+            var draftZone = _navigationContext.Get("schools.draft.zone");
+            var draftOwnership = _navigationContext.Get("schools.draft.ownership");
+            var draftStage = _navigationContext.Get("schools.draft.stage");
+            var draftGender = _navigationContext.Get("schools.draft.gender");
+            var draftActive = _navigationContext.Get("schools.draft.active");
+            void SaveSchoolDraft()
+            {
+                _navigationContext.Set("schools.draft.exists", "1");
+                _navigationContext.Set("schools.draft.code", code.Text);
+                _navigationContext.Set("schools.draft.name", name.Text);
+                _navigationContext.Set("schools.draft.zone", zone.Text);
+                _navigationContext.Set("schools.draft.ownership",
+                    ownership.SelectedItem?.ToString());
+                _navigationContext.Set("schools.draft.stage", stage.SelectedItem?.ToString());
+                _navigationContext.Set("schools.draft.gender", gender.SelectedItem?.ToString());
+                _navigationContext.Set("schools.draft.active", active.IsChecked == true ? "1" : "0");
+            }
+            void ClearPersistedSchoolDraft()
+            {
+                foreach (var key in new[] { "exists", "code", "name", "zone",
+                    "ownership", "stage", "gender", "active" })
+                    _navigationContext.Clear("schools.draft." + key);
+            }
+            restoreSchoolDraft = () =>
+            {
+                if (!hadDraft) return;
+                code.Text = draftCode;
+                name.Text = draftName;
+                zone.Text = draftZone;
+                ownership.SelectedItem = draftOwnership;
+                stage.SelectedItem = draftStage;
+                gender.SelectedItem = draftGender;
+                active.IsChecked = draftActive == "1";
+            };
+            code.TextChanged += (_, _) => SaveSchoolDraft();
+            name.TextChanged += (_, _) => SaveSchoolDraft();
+            zone.TextChanged += (_, _) => SaveSchoolDraft();
+            ownership.SelectionChanged += (_, _) => SaveSchoolDraft();
+            stage.SelectionChanged += (_, _) => SaveSchoolDraft();
+            gender.SelectionChanged += (_, _) => SaveSchoolDraft();
+            active.Checked += (_, _) => SaveSchoolDraft();
+            active.Unchecked += (_, _) => SaveSchoolDraft();
             grid.SelectionChanged += (_, _) =>
             {
                 selected = grid.SelectedItem as School;
@@ -479,6 +528,8 @@ public partial class MainWindow : Window
                         ownership.SelectedItem?.ToString() ?? "",
                         stage.SelectedItem?.ToString() ?? "",
                         gender.SelectedItem?.ToString() ?? "مختلطة");
+                    ClearPersistedSchoolDraft();
+                    _navigationContext.Clear("schools.selected");
                     Info("تمت إضافة المدرسة."); ShowSchools();
                 }
                 catch (Exception ex) { validation.ShowError(ex.Message); }
@@ -501,6 +552,8 @@ public partial class MainWindow : Window
                         Gender = gender.SelectedItem?.ToString() ?? "مختلطة",
                         IsActive = active.IsChecked == true
                     });
+                    ClearPersistedSchoolDraft();
+                    _navigationContext.Clear("schools.selected");
                     Info("تم حفظ بيانات المدرسة."); ShowSchools();
                 }
                 catch (Exception ex) { validation.ShowError(ex.Message); }
@@ -519,6 +572,8 @@ public partial class MainWindow : Window
                         "حذف نهائي — للمسؤول المؤسس فقط",MessageBoxButton.YesNo,
                         MessageBoxImage.Stop)!=MessageBoxResult.Yes)return;
                     _store.DeleteEmptySchool(_actor,selected.Id,code.Text.Trim());
+                    ClearPersistedSchoolDraft();
+                    _navigationContext.Clear("schools.selected");
                     Info("حُذفت المدرسة الخالية بعد فحص جميع المراجع.");
                     ShowSchools();
                 }),tone:"danger"));
@@ -530,6 +585,7 @@ public partial class MainWindow : Window
                 validation.Clear(); code.Text = ""; name.Text = "";
                 zone.Text = ""; active.IsChecked = true;
                 ownership.SelectedIndex = 0; stage.SelectedIndex = 0; gender.SelectedIndex = 2;
+                ClearPersistedSchoolDraft();
             }));
             form.Children.Add(buttons);
             root.Children.Add(Box(form));
@@ -562,6 +618,7 @@ public partial class MainWindow : Window
         if (selectedId.Length > 0)
             grid.SelectedItem = (grid.ItemsSource as IEnumerable<School>)?
                 .FirstOrDefault(x => x.Id == selectedId);
+        restoreSchoolDraft?.Invoke();
         Display("دليل المدارس", root);
     }
 
