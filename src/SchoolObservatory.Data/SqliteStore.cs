@@ -288,7 +288,7 @@ public sealed partial class SqliteStore
         if (!AccessPolicy.Has(actor, PermissionFlags.ViewSchools)) throw new UnauthorizedAccessException();
         using var con = Open();
         using var cmd = Cmd(con, null,
-            "SELECT id,code,name,zone,ownership,CASE WHEN stage='أساسي وثانوي' THEN 'مجمع تربوي' ELSE stage END,is_active,gender FROM schools WHERE $scope IS NULL OR id=$scope ORDER BY zone,name",
+            "SELECT id,code,name,zone,ownership,CASE WHEN is_kindergarten=1 THEN 'روضة' WHEN stage='أساسي وثانوي' THEN 'مجمع تربوي' ELSE stage END,is_active,gender FROM schools WHERE $scope IS NULL OR id=$scope ORDER BY zone,name",
             ("$scope", actor.Role is Roles.Entry or Roles.Principal ? actor.SchoolId ?? "" : null));
         using var r = cmd.ExecuteReader();
         var list = new List<School>();
@@ -303,7 +303,7 @@ public sealed partial class SqliteStore
             string.IsNullOrWhiteSpace(zone) || zone.Length > 100 ||
             string.IsNullOrWhiteSpace(stage) || stage.Length > 100 ||
             ownership is not ("حكومية" or "أهلية") ||
-            stage is not ("أساسي" or "ثانوي" or "أساسي وثانوي" or "مجمع تربوي"))
+            stage is not ("روضة" or "أساسي" or "ثانوي" or "أساسي وثانوي" or "مجمع تربوي"))
             throw new ArgumentException("بيانات المدرسة ناقصة أو غير صحيحة.");
     }
 
@@ -317,9 +317,10 @@ public sealed partial class SqliteStore
         using var tx = con.BeginTransaction();
         var id = Id();
         using (var cmd = Cmd(con, tx,
-            "INSERT INTO schools(id,code,name,zone,ownership,stage,gender,created_utc) VALUES($id,$c,$n,$z,$o,$s,$g,$at)",
+            "INSERT INTO schools(id,code,name,zone,ownership,stage,gender,is_kindergarten,created_utc) VALUES($id,$c,$n,$z,$o,$s,$g,$k,$at)",
             ("$id", id), ("$c", code.Trim()), ("$n", name.Trim()), ("$z", zone.Trim()),
-            ("$o", ownership), ("$s", DatabaseStage(stage)), ("$g", gender), ("$at", Utc()))) cmd.ExecuteNonQuery();
+            ("$o", ownership), ("$s", DatabaseStage(stage)), ("$g", gender),
+            ("$k", stage == "روضة" ? 1 : 0), ("$at", Utc()))) cmd.ExecuteNonQuery();
         Audit(con, tx, actor.Id, "school.create", id, $"code={code.Trim()};name={name.Trim()}");
         tx.Commit();
     }
@@ -341,9 +342,9 @@ public sealed partial class SqliteStore
 
         // Prepare a single statement for the complete atomic batch rather than 1 command per school.
         using var insert = Cmd(con, tx,
-            "INSERT INTO schools(id,code,name,zone,ownership,stage,gender,created_utc) VALUES($id,$c,$n,$z,$o,$s,$g,$at)",
+            "INSERT INTO schools(id,code,name,zone,ownership,stage,gender,is_kindergarten,created_utc) VALUES($id,$c,$n,$z,$o,$s,$g,$k,$at)",
             ("$id", ""), ("$c", ""), ("$n", ""), ("$z", ""),
-            ("$o", ""), ("$s", ""), ("$g", ""), ("$at", ""));
+            ("$o", ""), ("$s", ""), ("$g", ""), ("$k", 0), ("$at", ""));
         insert.Prepare();
         var createdAt = Utc();
         foreach (var row in rows)
@@ -355,6 +356,7 @@ public sealed partial class SqliteStore
             insert.Parameters["$o"].Value = row.Ownership;
             insert.Parameters["$s"].Value = DatabaseStage(row.Stage);
             insert.Parameters["$g"].Value = row.Gender;
+            insert.Parameters["$k"].Value = row.Stage == "روضة" ? 1 : 0;
             insert.Parameters["$at"].Value = createdAt;
             insert.ExecuteNonQuery();
         }
@@ -373,11 +375,13 @@ public sealed partial class SqliteStore
         using var con = Open();
         using var tx = con.BeginTransaction();
         EnsureSchoolStructureCompatible(con, tx, school.Id, DatabaseStage(school.Stage), school.Gender);
+        EnsureKindergartenTransitionCompatible(con, tx, school.Id, school.Stage == "روضة");
         using (var cmd = Cmd(con, tx,
-            "UPDATE schools SET code=$c,name=$n,zone=$z,ownership=$o,stage=$s,gender=$g,is_active=$a WHERE id=$id",
+            "UPDATE schools SET code=$c,name=$n,zone=$z,ownership=$o,stage=$s,gender=$g,is_kindergarten=$k,is_active=$a WHERE id=$id",
             ("$id", school.Id), ("$c", school.Code.Trim()), ("$n", school.Name.Trim()),
             ("$z", school.Zone.Trim()), ("$o", school.Ownership), ("$s", DatabaseStage(school.Stage)),
-            ("$g", school.Gender), ("$a", school.IsActive ? 1 : 0)))
+            ("$g", school.Gender), ("$k", school.Stage == "روضة" ? 1 : 0),
+            ("$a", school.IsActive ? 1 : 0)))
         {
             if (cmd.ExecuteNonQuery() != 1) throw new InvalidOperationException("المدرسة غير موجودة.");
         }
@@ -491,6 +495,7 @@ public sealed partial class SqliteStore
             ?? throw new InvalidOperationException("لا يمكن إدخال إحصاء لمدرسة غير نشطة.");
         var allowedGrades = school.Stage switch
         {
+            "روضة" => Enumerable.Range(1, 3).Select(x => x.ToString(CultureInfo.InvariantCulture)).ToHashSet(),
             "أساسي" => Enumerable.Range(1, 9).Select(x => x.ToString(CultureInfo.InvariantCulture)).ToHashSet(),
             "ثانوي" => Enumerable.Range(10, 3).Select(x => x.ToString(CultureInfo.InvariantCulture)).ToHashSet(),
             _ => Enumerable.Range(1, 12).Select(x => x.ToString(CultureInfo.InvariantCulture)).ToHashSet()
