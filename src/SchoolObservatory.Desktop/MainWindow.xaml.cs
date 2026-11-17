@@ -76,7 +76,7 @@ public partial class MainWindow : Window
             {
                 Text = text, TextWrapping = TextWrapping.Wrap,
                 FontFamily = new FontFamily("Arial"), FontSize = 15,
-                FontWeight = FontWeights.SemiBold,
+                FontWeight = FontWeights.Bold,
                 Foreground = Brushes.White, TextAlignment = TextAlignment.Right
             },
             Tag = text,
@@ -119,7 +119,7 @@ public partial class MainWindow : Window
             entry.Key.BorderThickness = selected
                 ? new Thickness(4, 1, 1, 1)
                 : new Thickness(1);
-            entry.Key.FontWeight = selected ? FontWeights.Bold : FontWeights.Normal;
+            entry.Key.FontWeight = FontWeights.Bold;
             entry.Key.Opacity = selected ? 1 : 0.93;
         }
     }
@@ -140,7 +140,7 @@ public partial class MainWindow : Window
     private static TextBlock Label(string text, int size = 16, bool bold = false) => new()
     {
         Text = text, FontSize = size,
-        FontWeight = bold ? FontWeights.Bold : FontWeights.Normal,
+        FontWeight = FontWeights.Bold,
         Margin = new Thickness(3, 6, 3, 6), TextWrapping = TextWrapping.Wrap
     };
 
@@ -220,6 +220,7 @@ public partial class MainWindow : Window
         };
         var cellText = new Style(typeof(TextBlock));
         cellText.Setters.Add(new Setter(TextBlock.TextAlignmentProperty, TextAlignment.Right));
+        cellText.Setters.Add(new Setter(TextBlock.FontWeightProperty, FontWeights.Bold));
         cellText.Setters.Add(new Setter(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis));
         cellText.Setters.Add(new Setter(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center));
         cellText.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(8, 2, 8, 2)));
@@ -300,9 +301,12 @@ public partial class MainWindow : Window
         }
         if (live.StaffVisible)
         {
-            liveNumbers.Add(("المعلمون المسجلون", live.ActiveTeachers));
-            liveNumbers.Add(("الإداريون المسجلون", live.ActiveAdministrators));
-            liveNumbers.Add(("الأخصائيون المسجلون", live.ActiveSpecialists));
+            liveNumbers.Add(("المعلمون في كشوف المدرسة", live.ActiveTeachers));
+            liveNumbers.Add(("الإداريون في الكشوف", live.ActiveAdministrators));
+            liveNumbers.Add(("الأخصائيون في الكشوف", live.ActiveSpecialists));
+            liveNumbers.Add(("المباشرون حسب بيانات العمل", live.DirectStaff));
+            liveNumbers.Add(("المنتدبون والمكلفون والمعارون", live.SecondedStaff));
+            liveNumbers.Add(("إجازة أو حالة عمل غير محددة", live.UnclassifiedStaff));
         }
         foreach (var (title, count) in liveNumbers)
         {
@@ -324,6 +328,10 @@ public partial class MainWindow : Window
             liveTiles.Children.Add(card);
         }
         root.Children.Add(liveTiles);
+        if (live.StaffVisible && _actor.Role is not (Roles.Entry or Roles.Principal) &&
+            live.DuplicateEmployeeCodes > 0)
+            root.Children.Add(Box(Label(
+                $"تنبيه جودة البيانات: توجد {live.DuplicateEmployeeCodes} أرقام وظيفية مسجلة في أكثر من مدرسة. راجع تنبيهات كشف الكادر الموحد قبل اعتماد الأعداد.", 15, true)));
         root.Children.Add(Label("الإحصاء الرسمي المعتمد (مستقل عن السجلات المباشرة)", 18, true));
         root.Children.Add(Box(Label("تُحتسب أعداد الطلاب والمعلمين والفصول من الاستمارات المعتمدة فقط. الاستمارات غير المعتمدة لا تدخل في المجموع الرسمي.", 15)));
         root.Children.Add(Box(Label("تنبيه أمني: النسخة الأولى محلية وغير مشفرة بعد؛ لا تستخدم بيانات شخصية حساسة حتى اكتمال متطلبات الإنتاج.", 14)));
@@ -481,6 +489,57 @@ public partial class MainWindow : Window
         var root = Stack();
         root.Children.Add(Label("سجلات المعلمين والطاقم الإداري والأخصائيين الاجتماعيين", 18, true));
         root.Children.Add(Label("كل حساب مدرسة يرى سجلات مدرسته فقط. أما مسؤولو المديرية فيرون المدارس وفقا لصلاحياتهم.", 13));
+        // School and district personnel lists are live views of the same school_staff IDs.
+        // Never store a separate duplicate district roster.
+        var districtPeople = _store.GetDistrictStaffDirectory(_actor);
+        var unified = Stack();
+        unified.Children.Add(Label("دليل الكادر الوظيفي الموحد — جميع المدارس المصرح لك بها", 18, true));
+        unified.Children.Add(Label("المدرسة التي يتبعها الموظف مستقلة عن جهة عمله الفعلية؛ انقر مرتين لفتح ملفه.", 14));
+        var districtSearch = Field(width: 350);
+        districtSearch.ToolTip = "ابحث بالاسم أو الرقم أو المدرسة أو الجهة المنتدب إليها";
+        unified.Children.Add(LineOfFields(("بحث الكادر على مستوى المديرية", districtSearch)));
+        var districtGrid = GridFor(districtPeople,
+            ("الرقم الوظيفي", "EmployeeCode", false),
+            ("الاسم", "FullName", false),
+            ("المدرسة المسجل بها", "SchoolName", false),
+            ("الفئة", "Category", false),
+            ("المسمى الوظيفي", "JobTitle", false),
+            ("الصفة الوظيفية", "EmploymentType", false),
+            ("وضع العمل", "AssignmentStatus", false),
+            ("جهة العمل الفعلية", "EffectiveWorkplace", false),
+            ("القيد", "ActiveLabel", false));
+        districtGrid.MaxHeight = 370;
+        districtSearch.TextChanged += (_, _) =>
+            districtGrid.ItemsSource = DirectorySearch.FindDistrictStaff(
+                districtPeople, districtSearch.Text);
+        districtGrid.MouseDoubleClick += (_, e) =>
+        {
+            if (IsDoubleClickOnGridRow(e.OriginalSource, districtGrid) &&
+                districtGrid.SelectedItem is DistrictStaffDirectoryRow selectedPerson)
+                Safe(() => ShowStaffProfile(selectedPerson.SchoolId, selectedPerson.StaffId));
+        };
+        unified.Children.Add(districtGrid);
+        unified.Children.Add(Btn("فتح الملف الوظيفي المحدد", (_, _) => Safe(() =>
+        {
+            if (districtGrid.SelectedItem is not DistrictStaffDirectoryRow selectedPerson)
+                throw new InvalidOperationException("اختر موظفا من دليل المديرية أولا.");
+            ShowStaffProfile(selectedPerson.SchoolId, selectedPerson.StaffId);
+        }), tone: "secondary"));
+        if (_actor.Role is not (Roles.Entry or Roles.Principal))
+        {
+            var conflicts = _store.GetDistrictStaffCodeConflicts(_actor);
+            if (conflicts.Count > 0)
+            {
+                unified.Children.Add(Label(
+                    $"مراجعة سلامة السجلات — يوجد {conflicts.Count} رقم وظيفي مكرر بين مدارس مختلفة، ولم يتم دمج أي سجل تلقائيا.", 15, true));
+                unified.Children.Add(GridFor(conflicts,
+                    ("الرقم الوظيفي المتكرر", "EmployeeCode", false),
+                    ("عدد المدارس", "Schools", false)));
+                unified.Children.Add(Label(
+                    "صحح أرقام الكادر بعد مراجعة المستندات؛ لا تنقل بيانات الانتداب إلى مدرسة ثانية لإنشاء موظف مكرر.", 14));
+            }
+        }
+        root.Children.Add(Box(unified));
         if (schools.Count == 0)
         {
             root.Children.Add(Label("لا توجد مدرسة نشطة متاحة لهذا الحساب."));
@@ -615,8 +674,8 @@ public partial class MainWindow : Window
                 specialization.Text, qualification.Text,
                 gender.SelectedItem?.ToString() ?? "غير محدد", active.IsChecked == true);
             _store.SaveSchoolStaff(_actor, staff);
-            Info("تم حفظ سجل الموظف في المدرسة المحددة.");
-            Refresh();
+            Info("تم حفظ سجل الموظف وتحديث كشف المدرسة والدليل الموحد.");
+            ShowStaffCore(school.Id);
         })));
         actions.Children.Add(Btn("حذف الموظف من الكشوف (أرشفة)", (_, _) => Safe(() =>
         {
@@ -625,13 +684,13 @@ public partial class MainWindow : Window
                 "تأكيد أرشفة موظف", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
                 return;
             _store.SaveSchoolStaff(_actor, selected with { IsActive = false });
-            Refresh();
+            ShowStaffCore(selected.SchoolId);
         }), tone: "danger"));
         actions.Children.Add(Btn("استعادة موظف مؤرشف", (_, _) => Safe(() =>
         {
             if (selected is null) throw new InvalidOperationException("حدد الموظف المؤرشف أولا.");
             _store.SaveSchoolStaff(_actor, selected with { IsActive = true });
-            Refresh();
+            ShowStaffCore(selected.SchoolId);
         }), tone: "secondary"));
         editor.Children.Add(actions);
 
@@ -662,8 +721,9 @@ public partial class MainWindow : Window
                     MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
                 var imported = await Task.Run(() => _store.ImportStaffRecords(
                     _actor, rows, Path.GetFileName(file.FileName)));
-                Info("تم تسجيل " + imported + " صفا في المدارس المطابقة دون استيراد جزئي.");
-                Refresh();
+                Info("تم تسجيل " + imported + " صفا وتحديث دليل الكادر الموحد دون استيراد جزئي.");
+                ShowStaffCore(schoolBox.SelectedItem is School currentSchool
+                    ? currentSchool.Id : null);
             }
             catch (Exception ex)
             {

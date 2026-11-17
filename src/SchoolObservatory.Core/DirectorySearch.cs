@@ -50,4 +50,20 @@ public static class DirectorySearch
             Matches(s.Category, term) || Matches(s.JobTitle, term) ||
             Matches(s.Specialization, term) || Matches(s.Qualification, term)).ToArray();
     }
+    /// <summary>Filter the already-loaded unified district roster without repeated SQL queries.</summary>
+    public static IReadOnlyList<DistrictStaffDirectoryRow> FindDistrictStaff(
+        IReadOnlyList<DistrictStaffDirectoryRow> people, string? query)
+    {
+        ArgumentNullException.ThrowIfNull(people);
+        if (string.IsNullOrWhiteSpace(query)) return people;
+        var term = Normalize(query);
+        if (term.Length == 0) return people;
+        return people.Where(x =>
+            Matches(x.FullName, term) || Matches(x.EmployeeCode, term) ||
+            Matches(x.SchoolName, term) || Matches(x.Category, term) ||
+            Matches(x.JobTitle, term) || Matches(x.Qualification, term) ||
+            Matches(x.AssignmentStatus, term) ||
+            Matches(x.EffectiveWorkplace, term)).ToArray();
+    }
+
 }
