@@ -618,6 +618,21 @@ public partial class MainWindow : Window
             Info("تم حفظ سجل الموظف في المدرسة المحددة.");
             Refresh();
         })));
+        actions.Children.Add(Btn("حذف الموظف من الكشوف (أرشفة)", (_, _) => Safe(() =>
+        {
+            if (selected is null) throw new InvalidOperationException("حدد الموظف من كشف الكادر أولا.");
+            if (MessageBox.Show("سيتم استبعاده من أعداد الموظفين النشطين مع الحفاظ على ملفه وسجله الوظيفي. هل تؤكد؟",
+                "تأكيد أرشفة موظف", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                return;
+            _store.SaveSchoolStaff(_actor, selected with { IsActive = false });
+            Refresh();
+        }), tone: "danger"));
+        actions.Children.Add(Btn("استعادة موظف مؤرشف", (_, _) => Safe(() =>
+        {
+            if (selected is null) throw new InvalidOperationException("حدد الموظف المؤرشف أولا.");
+            _store.SaveSchoolStaff(_actor, selected with { IsActive = true });
+            Refresh();
+        }), tone: "secondary"));
         editor.Children.Add(actions);
 
         var importPanel = Stack();
