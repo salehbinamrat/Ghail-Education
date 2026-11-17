@@ -559,6 +559,14 @@ public sealed partial class SqliteStore
             WHEN EXISTS(SELECT 1 FROM academic_years
                         WHERE year=OLD.academic_year AND is_closed=1)
             BEGIN SELECT RAISE(ABORT,'A closed academic year census round cannot be deleted'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_year_rename
+            BEFORE UPDATE OF year ON academic_years
+            WHEN OLD.is_closed=1
+            BEGIN SELECT RAISE(ABORT,'A closed academic year identifier is immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS p2_closed_year_delete
+            BEFORE DELETE ON academic_years
+            WHEN OLD.is_closed=1
+            BEGIN SELECT RAISE(ABORT,'A closed academic year cannot be deleted'); END;
             CREATE TRIGGER IF NOT EXISTS p2_closed_year_reopen
             BEFORE UPDATE OF is_closed ON academic_years
             WHEN OLD.is_closed=1 AND NEW.is_closed=0
