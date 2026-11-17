@@ -64,6 +64,7 @@ public sealed class DistributionContractTests
         // load its hostfxr.dll (0x800700C1) unless a separate x86 runtime exists.
         Assert.Contains("architecture: x86", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet-x86", workflow, StringComparison.Ordinal);
+        Assert.Contains(@"Join-Path $env:RUNNER_TEMP 'dotnet-x86\x86'", workflow, StringComparison.Ordinal);
         Assert.Contains("$env:DOTNET_ROOT_X86 = $x86Root", workflow, StringComparison.Ordinal);
         Assert.Contains("Join-Path $x86Root 'dotnet.exe'", workflow, StringComparison.Ordinal);
         Assert.Contains("SCHOOL_OBSERVATORY_EXPECTED_ARCH = 'x86'", workflow, StringComparison.Ordinal);
