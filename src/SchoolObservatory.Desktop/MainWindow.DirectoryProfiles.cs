@@ -125,6 +125,7 @@ public partial class MainWindow
             }), tone: school.IsActive ? "danger" : "secondary"));
         }
         root.Children.Add(Box(basic));
+        AppendSchoolInfrastructure(root, school);
 
         var info = Stack();
         info.Children.Add(Label("المعلومات الإدارية والتواصل", 18, true));
