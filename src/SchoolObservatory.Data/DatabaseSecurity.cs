@@ -105,7 +105,7 @@ public static class DatabaseSecurity
     }
 
     /// <summary>Open a SQLCipher 4 file using a password or random hex key. Never use ReadWriteCreate for existing records.</summary>
-    public static SqliteConnection OpenEncrypted(string path, string passphrase, bool create = false)
+    public static SqliteConnection OpenEncrypted(string path, string passphrase, bool create = false, bool readOnly = false)
     {
         if (string.IsNullOrEmpty(passphrase)) throw new ArgumentException("Encryption key is missing.");
         var uri = new Uri(FullPath(path)).AbsoluteUri + "?cipher=sqlcipher&legacy=4";
@@ -113,7 +113,7 @@ public static class DatabaseSecurity
         {
             DataSource = uri,
             Password = passphrase,
-            Mode = create ? SqliteOpenMode.ReadWriteCreate : SqliteOpenMode.ReadWrite,
+            Mode = readOnly ? SqliteOpenMode.ReadOnly : create ? SqliteOpenMode.ReadWriteCreate : SqliteOpenMode.ReadWrite,
             Cache = SqliteCacheMode.Private,
             Pooling = false,
             ForeignKeys = true
@@ -363,6 +363,8 @@ public static class DatabaseSecurity
         cmd.CommandText = "SELECT COUNT(*) FROM \"" + table + "\"";
         return (long)(cmd.ExecuteScalar() ?? 0L);
     }
+
+    internal static void ProtectLocalFile(string path) => SecureFile(path);
 
     internal static string ReadCurrentKey(string databasePath) => ReadHexKey(KeyFile(databasePath));
 
