@@ -12,7 +12,7 @@ public sealed partial class SqliteStore
         using var cmd=Cmd(con,null,"""
             CREATE TABLE IF NOT EXISTS import_batches(
                 id TEXT PRIMARY KEY,
-                entity_type TEXT NOT NULL CHECK(entity_type IN ('Schools','Students','Staff')),
+                entity_type TEXT NOT NULL CHECK(entity_type IN ('Schools','Students','Staff','Sections')),
                 source_name TEXT NOT NULL,
                 source_sha256 TEXT NOT NULL,
                 academic_year TEXT NOT NULL,
@@ -133,6 +133,33 @@ public sealed partial class SqliteStore
         {
             if(plan.Status==ImportRowStatus.Unchanged) continue;
             var input=preview.Table.Rows[plan.RowNumber-2];
+            if(preview.Entity==ImportEntity.Sections)
+            {
+                var schoolCode=LookupInput(input,preview.ColumnMap,"school_code");
+                if(schoolCode.Length==0 && preview.DefaultSchoolId is not null)
+                    schoolCode=context.Schools.Values.Single(x=>x.Id==preview.DefaultSchoolId).Fields["code"];
+                var school=context.Schools[schoolCode];
+                if(!GradeNames.TryParse(LookupInput(input,preview.ColumnMap,"grade"),out var grade))
+                    throw new InvalidOperationException("تغير الصف منذ المعاينة.");
+                var section=LookupInput(input,preview.ColumnMap,"section");
+                var gradeId=Id();
+                using(var create=Cmd(con,tx,"""
+                    INSERT INTO school_grades(id,school_id,academic_year,grade,section,created_utc)
+                    VALUES($id,$school,$year,$grade,$section,$now)
+                    """,("$id",gradeId),("$school",school.Id),("$year",refreshed.AcademicYear),
+                    ("$grade",grade),("$section",section),("$now",Utc())))
+                    create.ExecuteNonQuery();
+                var after=JsonSerializer.Serialize(Fields(("school_id",school.Id),
+                    ("school_code",schoolCode),("academic_year",refreshed.AcademicYear),
+                    ("grade",grade.ToString(CultureInfo.InvariantCulture)),("section",section)));
+                using var change=Cmd(con,tx,"""
+                    INSERT INTO import_changes(batch_id,ordinal,entity_id,school_id,operation,before_json,after_json)
+                    VALUES($batch,$row,$id,$school,'new','',$after)
+                    """,("$batch",batchId),("$row",plan.RowNumber),("$id",gradeId),
+                    ("$school",school.Id),("$after",after));
+                change.ExecuteNonQuery();
+                continue;
+            }
             var sourceCode=LookupInput(input,preview.ColumnMap,"school_code");
             string schoolId="";
             if(preview.Entity!=ImportEntity.Schools)
