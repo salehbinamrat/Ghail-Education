@@ -193,6 +193,7 @@ public sealed partial class SqliteStore
 
     private AutomaticConfig? ReadAutomaticConfig()
     {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         if (!File.Exists(AutoConfigFile)) return null;
         byte[] bytes = ProtectedData.Unprotect(File.ReadAllBytes(AutoConfigFile), AutoEntropy, DataProtectionScope.CurrentUser);
         try
@@ -206,6 +207,7 @@ public sealed partial class SqliteStore
     public void ConfigureAutomaticBackup(UserAccount actor, string directory, int intervalHours, string passphrase)
     {
         RequireBackupOwner(actor);
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         AssertBackupSecret(passphrase);
         if (intervalHours is < 1 or > 168) throw new ArgumentOutOfRangeException(nameof(intervalHours));
         var full = Path.GetFullPath(directory);
