@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
 using System.Windows.Documents;
 using System.Windows.Media;
 using Microsoft.Win32;
@@ -37,7 +38,13 @@ public partial class MainWindow
     {
         var column = Stack();
         column.Margin = new Thickness(4, 4, 12, 9);
-        column.Children.Add(Label(label, 13));
+        var caption = Label(label, 13);
+        column.Children.Add(caption);
+        if (editor is FrameworkElement field)
+        {
+            AutomationProperties.SetLabeledBy(field, caption);
+            AutomationProperties.SetHelpText(field, label);
+        }
         column.Children.Add(editor);
         return column;
     }

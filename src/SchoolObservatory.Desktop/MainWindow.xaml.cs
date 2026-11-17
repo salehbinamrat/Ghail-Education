@@ -1,4 +1,8 @@
 using System.Collections.ObjectModel;
+using System.Windows.Automation;
+using SchoolObservatory.Desktop.Services;
+using SchoolObservatory.Desktop.ViewModels;
+using SchoolObservatory.Desktop.Views;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -17,6 +21,10 @@ public partial class MainWindow : Window
     public bool LogoutRequested { get; private set; }
     private readonly SqliteStore _store;
     private readonly UserAccount _actor;
+    private readonly NavigationContext _navigationContext = new();
+    private bool _sidebarUserOverride;
+    private bool _sidebarExpanded = true;
+    private bool _lastCompact;
     private readonly Brush _primary = new SolidColorBrush(Color.FromRgb(0, 148, 177));
     private readonly Brush _neutral = new SolidColorBrush(Color.FromRgb(236, 243, 251));
     private readonly Brush _muted = new SolidColorBrush(Color.FromRgb(89, 111, 139));
@@ -24,7 +32,8 @@ public partial class MainWindow : Window
     public MainWindow(SqliteStore store, UserAccount actor)
     {
         InitializeComponent();
-        Loaded += (_, _) => WindowLayout.FitToWorkArea(this);
+        Loaded += (_, _) => { WindowLayout.FitToWorkArea(this); ApplySidebarLayout(); };
+        SizeChanged += (_, _) => ApplySidebarLayout();
         _store = store;
         _actor = actor;
         AccountText.Text = $"{actor.Username}  |  {(actor.IsOwner ? "المسؤول المؤسس" : RoleName(actor.Role))}";
@@ -32,7 +41,8 @@ public partial class MainWindow : Window
         AddNav("لوحة التحكم", ShowDashboard);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewSchools))
             AddNav("الأعوام الدراسية والأرشيف", ShowAcademicYears);
-        AddNav("دليل المدارس", ShowSchools);
+        if (AccessPolicy.Has(actor, PermissionFlags.ViewSchools))
+            AddNav("دليل المدارس", ShowSchools);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewStaff))
             AddNav("كادر المدارس والسجلات", ShowStaff);
         if (AccessPolicy.Has(actor, PermissionFlags.ViewStudents))
@@ -90,6 +100,7 @@ public partial class MainWindow : Window
         };
         var button = new Button
         {
+            Style = (Style)Application.Current.FindResource("NavigationButton"),
             Content = new TextBlock
             {
                 Text = text, TextWrapping = TextWrapping.Wrap,
@@ -109,7 +120,16 @@ public partial class MainWindow : Window
             ToolTip = text
         };
         _navBaseColors[button] = button.Background;
-        button.Click += (_, _) => Safe(action);
+        button.Click += (_, _) =>
+        {
+            Safe(action);
+            if (ResponsiveSizing.ShouldCollapseSidebar(ActualWidth))
+            {
+                _sidebarUserOverride = true;
+                _sidebarExpanded = false;
+                ApplySidebarLayout();
+            }
+        };
         NavPanel.Children.Add(button);
     }
 
@@ -140,6 +160,32 @@ public partial class MainWindow : Window
             entry.Key.FontWeight = FontWeights.Bold;
             entry.Key.Opacity = selected ? 1 : 0.93;
         }
+    }
+
+
+    private void NavigationToggle_Click(object sender, RoutedEventArgs e)
+    {
+        _sidebarUserOverride = true;
+        _sidebarExpanded = SidebarPanel.Visibility != Visibility.Visible;
+        ApplySidebarLayout();
+    }
+
+    private void ApplySidebarLayout()
+    {
+        if (!IsLoaded || ActualWidth <= 0) return;
+        var compact = ResponsiveSizing.ShouldCollapseSidebar(ActualWidth);
+        if (_lastCompact != compact)
+        {
+            _sidebarUserOverride = false;
+            _lastCompact = compact;
+        }
+        var visible = _sidebarUserOverride ? _sidebarExpanded : !compact;
+        SidebarPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        SidebarColumn.Width = new GridLength(visible
+            ? compact ? Math.Clamp(ActualWidth * 0.29, 145, 205)
+                      : ResponsiveSizing.SidebarWidth(ActualWidth)
+            : 0);
+        NavigationToggle.Content = visible ? "☰ إخفاء القائمة" : "☰ إظهار القائمة";
     }
 
     private void Display(string title, UIElement body)
@@ -204,6 +250,7 @@ public partial class MainWindow : Window
             BorderBrush = new SolidColorBrush(Color.FromRgb(7, 91, 126)),
             MinHeight = 42
         };
+        AutomationProperties.SetName(btn, title);
         btn.Click += click;
         return btn;
     }
@@ -269,6 +316,32 @@ public partial class MainWindow : Window
         return grid;
     }
 
+
+    /// <summary>Text is visible and announced even when the grid has no matching records.</summary>
+    private static Grid TableSurface(DataGrid grid, string emptyMessage = "لا توجد سجلات تطابق الاختيارات الحالية.")
+    {
+        var surface = new Grid();
+        surface.Children.Add(grid);
+        var note = new TextBlock
+        {
+            Text = emptyMessage, FontFamily = new FontFamily("Arial"),
+            FontWeight = FontWeights.Bold,
+            IsHitTestVisible = false,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            MaxWidth = 460,
+            Style = (Style)Application.Current.FindResource("ProfessionalEmptyState")
+        };
+        AutomationProperties.SetName(note, emptyMessage);
+        void UpdateEmpty() =>
+            note.Visibility = grid.HasItems ? Visibility.Collapsed : Visibility.Visible;
+        grid.Loaded += (_, _) => UpdateEmpty();
+        grid.Items.CollectionChanged += (_, _) => UpdateEmpty();
+        surface.Children.Add(note);
+        UpdateEmpty();
+        return surface;
+    }
+
     private void Safe(Action action)
     {
         try { action(); }
@@ -285,99 +358,16 @@ public partial class MainWindow : Window
         Close();
     }
 
-    private static Border DashboardCard(string caption, int value, Color accent)
-    {
-        var group = Stack();
-        group.Children.Add(new TextBlock
-        {
-            Text = caption, FontFamily = new FontFamily("Arial"), FontWeight = FontWeights.Bold,
-            FontSize = 15, Foreground = new SolidColorBrush(Color.FromRgb(56, 75, 97)),
-            TextWrapping = TextWrapping.Wrap, MinHeight = 37
-        });
-        group.Children.Add(new TextBlock
-        {
-            Text = value.ToString("N0", CultureInfo.CurrentCulture),
-            FontFamily = new FontFamily("Arial"), FontSize = 29, FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(accent), Margin = new Thickness(0, 6, 0, 0)
-        });
-        return new Border
-        {
-            Child = group, Background = Brushes.White, CornerRadius = new CornerRadius(12),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(197, 222, 231)),
-            BorderThickness = new Thickness(1, 1, 1, 3),
-            Padding = new Thickness(15, 12, 15, 12),
-            Width = 223, MinHeight = 113, Margin = new Thickness(0, 0, 10, 10)
-        };
-    }
-
+    /// <summary>Phase 5 incrementally moves the dashboard to an async View/ViewModel/service.</summary>
     private void ShowDashboard()
     {
-        var data = _store.GetDashboard(_actor);
-        var live = _store.GetLiveDirectoryTotals(_actor);
-        var root = Stack();
-        root.Children.Add(Label($"مرصد مدارس { _store.DistrictName }", 21, true));
-        root.Children.Add(Label(
-            "ملخص واحد للبيانات الحالية. الأعداد التشغيلية ترتبط بكشوف المدارس مباشرة، أما الإحصاء المعتمد فيخضع للمراجعة.", 14));
-
-        root.Children.Add(Label("البيانات المدرسية الحالية", 18, true));
-        var cards = new WrapPanel { Margin = new Thickness(0, 8, 0, 14) };
-        var values = new List<(string Title, int Value, Color Accent)>
-        {
-            ("المدارس النشطة", live.Schools, Color.FromRgb(8, 111, 151)),
-            ("مجالس الآباء والأمهات", live.CouncilMembers, Color.FromRgb(119, 77, 165))
-        };
-        if (live.StudentsVisible)
-        {
-            values.Add(("الطلاب النشطون", live.ActiveStudents, Color.FromRgb(16, 131, 106)));
-            values.Add(("الشعب الدراسية المسجلة", live.Sections, Color.FromRgb(24, 117, 169)));
-        }
-        if (live.StaffVisible)
-        {
-            values.Add(("المعلمون في الكشوف", live.ActiveTeachers, Color.FromRgb(19, 117, 151)));
-            values.Add(("الإداريون في الكشوف", live.ActiveAdministrators, Color.FromRgb(143, 101, 37)));
-            values.Add(("الأخصائيون الاجتماعيون", live.ActiveSpecialists, Color.FromRgb(122, 78, 163)));
-        }
-        foreach (var (title, value, accent) in values)
-            cards.Children.Add(DashboardCard(title, value, accent));
-        root.Children.Add(cards);
-
-        if (live.StaffVisible)
-        {
-            var staffing = Stack();
-            staffing.Children.Add(Label("التوزيع الوظيفي حسب حالة العمل المسجلة", 16, true));
-            staffing.Children.Add(Label(
-                $"مباشر: {live.DirectStaff:N0}   |   منتدب/مكلف/معار: {live.SecondedStaff:N0}   |   إجازة أو حالة غير محددة: {live.UnclassifiedStaff:N0}", 15));
-            staffing.Children.Add(Label(
-                "هذا توزيع الكادر نفسه وليس إضافة أعداد جديدة إلى الإجمالي؛ الموظف المنتدب يظل في كشوف مدرسته.", 13));
-            root.Children.Add(Box(staffing, new Thickness(13)));
-        }
-        if (live.StaffVisible && _actor.Role is not (Roles.Entry or Roles.Principal) &&
-            live.DuplicateEmployeeCodes > 0)
-            root.Children.Add(Box(Label(
-                $"تنبيه جودة البيانات: توجد {live.DuplicateEmployeeCodes} أرقام وظيفية مرتبطة بأكثر من مدرسة. افتح كادر المدارس لتصحيحها دون فقد السجلات.", 15, true)));
-
-        root.Children.Add(Label("حالة الاعتماد الرسمي", 18, true));
-        var approvalCards = new WrapPanel { Margin = new Thickness(0, 8, 0, 12) };
-        approvalCards.Children.Add(DashboardCard("الإحصاء المعتمد", data.Approved,
-            Color.FromRgb(15, 126, 92)));
-        approvalCards.Children.Add(DashboardCard("الاستمارات قيد المراجعة", data.Submitted,
-            Color.FromRgb(168, 111, 32)));
-        root.Children.Add(approvalCards);
-        root.Children.Add(Label(
-            "إجماليات الطلاب والمعلمين والفصول في الإحصاء الرسمي تظهر في التقارير المعتمدة، ولا تتكرر هنا.", 13));
-
-        var actions = new WrapPanel { Margin = new Thickness(0, 6, 0, 8) };
-        actions.Children.Add(Btn("تحديث المؤشرات", (_, _) => ShowDashboard(), tone: "secondary"));
-        if (AccessPolicy.Has(_actor, PermissionFlags.ViewReports))
-            actions.Children.Add(Btn("فتح التقارير المعتمدة", (_, _) => ShowReports(), tone: "primary"));
-        if (AccessPolicy.Has(_actor, PermissionFlags.ViewReports) &&
-            AccessPolicy.Has(_actor, PermissionFlags.ViewStudents) &&
-            AccessPolicy.Has(_actor, PermissionFlags.ViewStaff))
-            actions.Children.Add(Btn("مطابقة السجلات مع الإحصاء", (_, _) => ShowReconciliation(), tone: "secondary"));
-        root.Children.Add(actions);
-        root.Children.Add(Label(
-            "الحفظ محلي ومشفر. تتغير المؤشرات التشغيلية مباشرة من السجلات؛ الإحصاء الرسمي المعتمد يحتفظ بتاريخ اعتماده.", 13));
-        Display("لوحة التحكم", root);
+        var model = new DashboardViewModel(new DashboardService(_store, _actor));
+        var view = new DashboardView { DataContext = model };
+        view.RefreshRequested += async (_, _) => await model.LoadAsync();
+        view.ReportsRequested += (_, _) => Safe(ShowReports);
+        view.ReconciliationRequested += (_, _) => Safe(ShowReconciliation);
+        Display("لوحة التحكم", view);
+        _ = model.LoadAsync();
     }
 
     // Ignore headers, scrollbars, empty backgrounds and other non-row double-clicks.
@@ -395,18 +385,20 @@ public partial class MainWindow : Window
         var data = _store.GetSchools(_actor);
         root.Children.Add(Label($"عدد المدارس الظاهرة: {data.Count} — حسب الصلاحيات المحددة لحسابك", 15));
         School? selected = null;
-        var schoolSearch = Field(width: 335);
+        var schoolSearch = Field(_navigationContext.Get("schools.search"), width: 335);
         schoolSearch.ToolTip = "ابحث برمز المدرسة أو اسمها أو المنطقة أو المرحلة";
         root.Children.Add(Box(LineOfFields(("بحث سريع في دليل المدارس", schoolSearch))));
         var grid = GridFor(data,
             ("الرمز", "Code", false), ("المدرسة", "Name", false), ("المنطقة", "Zone", false),
             ("الملكية", "Ownership", false), ("النوع", "Gender", false),
             ("المرحلة", "Stage", false), ("نشطة", "IsActive", false));
-        root.Children.Add(Box(grid));
+        root.Children.Add(Box(TableSurface(grid, "لم يتم العثور على مدارس مطابقة. غيّر عبارة البحث.")));
+        grid.ItemsSource = DirectorySearch.FindSchools(data, schoolSearch.Text);
         schoolSearch.TextChanged += (_, _) =>
         {
             selected = null;
             grid.SelectedItem = null;
+            _navigationContext.Set("schools.search", schoolSearch.Text);
             grid.ItemsSource = DirectorySearch.FindSchools(data, schoolSearch.Text);
         };
         root.Children.Add(Label("انقر مرتين على اسم المدرسة لفتح ملفها الكامل، أو حددها ثم اضغط زر فتح الملف.", 13));
@@ -441,33 +433,64 @@ public partial class MainWindow : Window
             }
             form.Children.Add(fields);
             form.Children.Add(active);
+            var validation = new InlineValidationPresenter();
+            form.Children.Add(validation.Message);
+            var editors = new Dictionary<string, Control>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["code"] = code, ["name"] = name, ["zone"] = zone,
+                ["ownership"] = ownership, ["stage"] = stage, ["gender"] = gender
+            };
+            bool ValidateSchoolForm() =>
+                validation.Show(SchoolFormValidator.Validate(code.Text, name.Text, zone.Text,
+                    ownership.SelectedItem?.ToString(), stage.SelectedItem?.ToString(),
+                    gender.SelectedItem?.ToString()), editors);
             grid.SelectionChanged += (_, _) =>
             {
                 selected = grid.SelectedItem as School;
                 if (selected is null) return;
+                _navigationContext.Set("schools.selected", selected.Id);
+                validation.Clear();
                 code.Text = selected.Code; name.Text = selected.Name; zone.Text = selected.Zone;
                 ownership.SelectedItem = selected.Ownership; stage.SelectedItem = selected.Stage;
                 gender.SelectedItem = selected.Gender;
                 active.IsChecked = selected.IsActive;
             };
             var buttons = new WrapPanel();
-            buttons.Children.Add(Btn("إضافة مدرسة جديدة", (_, _) => Safe(() =>
+            buttons.Children.Add(Btn("إضافة مدرسة جديدة", (_, _) =>
             {
-                _store.AddSchool(_actor, code.Text, name.Text, zone.Text, ownership.SelectedItem?.ToString() ?? "", stage.SelectedItem?.ToString() ?? "", gender.SelectedItem?.ToString() ?? "مختلطة");
-                Info("تمت إضافة المدرسة."); ShowSchools();
-            })));
-            buttons.Children.Add(Btn("حفظ تعديل المدرسة المحددة", (_, _) => Safe(() =>
-            {
-                if (selected is null) throw new InvalidOperationException("حدد المدرسة المطلوب تعديلها من الجدول.");
-                _store.UpdateSchool(_actor, selected with
+                if (!ValidateSchoolForm()) return;
+                try
                 {
-                    Code = code.Text, Name = name.Text, Zone = zone.Text,
-                    Ownership = ownership.SelectedItem?.ToString() ?? "",
-                    Stage = stage.SelectedItem?.ToString() ?? "", Gender = gender.SelectedItem?.ToString() ?? "مختلطة",
-                    IsActive = active.IsChecked == true
-                });
-                Info("تم حفظ بيانات المدرسة."); ShowSchools();
-            })));
+                    _store.AddSchool(_actor, code.Text, name.Text, zone.Text,
+                        ownership.SelectedItem?.ToString() ?? "",
+                        stage.SelectedItem?.ToString() ?? "",
+                        gender.SelectedItem?.ToString() ?? "مختلطة");
+                    Info("تمت إضافة المدرسة."); ShowSchools();
+                }
+                catch (Exception ex) { validation.ShowError(ex.Message); }
+            }));
+            buttons.Children.Add(Btn("حفظ تعديل المدرسة المحددة", (_, _) =>
+            {
+                if (selected is null)
+                {
+                    validation.ShowError("حدد المدرسة المطلوب تعديلها من الجدول.");
+                    return;
+                }
+                if (!ValidateSchoolForm()) return;
+                try
+                {
+                    _store.UpdateSchool(_actor, selected with
+                    {
+                        Code = code.Text, Name = name.Text, Zone = zone.Text,
+                        Ownership = ownership.SelectedItem?.ToString() ?? "",
+                        Stage = stage.SelectedItem?.ToString() ?? "",
+                        Gender = gender.SelectedItem?.ToString() ?? "مختلطة",
+                        IsActive = active.IsChecked == true
+                    });
+                    Info("تم حفظ بيانات المدرسة."); ShowSchools();
+                }
+                catch (Exception ex) { validation.ShowError(ex.Message); }
+            }));
             if (_actor.IsOwner)
                 buttons.Children.Add(Btn("حذف نهائي لمدرسة مؤرشفة وخالية فقط",(_,_)=>Safe(()=>
                 {
@@ -489,7 +512,8 @@ public partial class MainWindow : Window
                 (_,_) => ShowImportWizard(ImportEntity.Schools),tone:"secondary"));
             buttons.Children.Add(Btn("مسح الحقول", (_, _) =>
             {
-                selected = null; grid.SelectedItem = null; code.Text = ""; name.Text = "";
+                selected = null; grid.SelectedItem = null; _navigationContext.Clear("schools.selected");
+                validation.Clear(); code.Text = ""; name.Text = "";
                 zone.Text = ""; active.IsChecked = true;
                 ownership.SelectedIndex = 0; stage.SelectedIndex = 0; gender.SelectedIndex = 2;
             }));
@@ -519,6 +543,11 @@ public partial class MainWindow : Window
             })));
             root.Children.Add(Box(form));
         }
+        // Preserve the chosen record when navigating to a profile and back.
+        var selectedId = _navigationContext.Get("schools.selected");
+        if (selectedId.Length > 0)
+            grid.SelectedItem = (grid.ItemsSource as IEnumerable<School>)?
+                .FirstOrDefault(x => x.Id == selectedId);
         Display("دليل المدارس", root);
     }
 
