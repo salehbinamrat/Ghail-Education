@@ -310,39 +310,56 @@ public static class DatabaseSecurity
             using (var source = OpenPlaintext(db))
             {
                 VerifyIntegrity(source);
-                using (var target = OpenEncrypted(candidate, key, create: true))
+                // SQLite3MC cannot use sqlite3_backup across plaintext/encrypted databases.
+                // VACUUM INTO produces a consistent online snapshot INCLUDING committed WAL.
+                // SQLCipher is activated directly for the target URI: no plaintext staging copy.
+                var targetUri = new Uri(candidate).AbsoluteUri +
+                    "?cipher=sqlcipher&legacy=4&key=" + Uri.EscapeDataString(key);
+                using (var vacuum = source.CreateCommand())
                 {
-                    source.BackupDatabase(target); // Includes committed WAL pages atomically.
-                    CompareAllRecords(source, target);
+                    vacuum.CommandText = "VACUUM INTO $target;";
+                    vacuum.Parameters.AddWithValue("$target", targetUri);
+                    vacuum.ExecuteNonQuery();
+                }
+                using (var encrypted = OpenEncrypted(candidate, key))
+                {
+                    CompareAllRecords(source, encrypted);
                     if (IsPlaintext(candidate))
                         throw new CryptographicException("SQLCipher migration produced plaintext.");
+
+                    var recoveryRoot = Path.Combine(Path.GetDirectoryName(db)!, "recovery");
+                    SecureDirectory(recoveryRoot);
+                    var encryptedSnapshot = Path.Combine(recoveryRoot,
+                        "before-encryption-" + DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmssfff", CultureInfo.InvariantCulture) +
+                        "-" + Guid.NewGuid().ToString("N") + ".db");
+                    using (var saved = OpenEncrypted(encryptedSnapshot, key, create: true))
+                    {
+                        encrypted.BackupDatabase(saved);
+                        CompareAllRecords(encrypted, saved);
+                        if (IsPlaintext(encryptedSnapshot))
+                            throw new CryptographicException("The recovery snapshot is not encrypted.");
+                    }
+                    SecureFile(encryptedSnapshot);
                 }
-                // Keep a verified, encrypted pre-migration recovery point. This is
-                // separate from the original plaintext rollback, which must be securely retired.
-                var recoveryRoot = Path.Combine(Path.GetDirectoryName(db)!, "recovery");
-                SecureDirectory(recoveryRoot);
-                var encryptedSnapshot = Path.Combine(recoveryRoot,
-                    "before-encryption-" + DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmssfff", CultureInfo.InvariantCulture) +
-                    "-" + Guid.NewGuid().ToString("N") + ".db");
-                using (var saved = OpenEncrypted(encryptedSnapshot, key, create: true))
+
+                // SQLite handles WAL itself. Fail closed if any other process is using it.
+                using (var checkpoint = source.CreateCommand())
                 {
-                    source.BackupDatabase(saved);
-                    CompareAllRecords(source, saved);
-                    if (IsPlaintext(encryptedSnapshot))
-                        throw new CryptographicException("The recovery snapshot is not encrypted.");
+                    checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                    checkpoint.ExecuteNonQuery();
                 }
-                SecureFile(encryptedSnapshot);
-                // Flush legacy WAL through SQLite itself; never copy/delete a live -wal file.
-                using var checkpoint = source.CreateCommand();
-                checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode=DELETE;";
-                checkpoint.ExecuteNonQuery();
+                using (var journal = source.CreateCommand())
+                {
+                    journal.CommandText = "PRAGMA journal_mode=DELETE;";
+                    journal.ExecuteNonQuery();
+                }
             }
 
             SecureFile(candidate);
             if (File.Exists(db + "-wal") || File.Exists(db + "-shm"))
-                throw new IOException("Active legacy WAL sidecars remain; close all other instances before migrating.");
+                throw new IOException("Active WAL sidecars remain; close other instances before migrating.");
 
-            File.Replace(candidate, db, original); // Atomic same-volume promotion.
+            File.Replace(candidate, db, original);
             replaced = true;
             using (var verified = OpenEncrypted(db, key))
             {
@@ -350,8 +367,7 @@ public static class DatabaseSecurity
                 if (IsPlaintext(db))
                     throw new CryptographicException("Database not encrypted after migration.");
             }
-            // Data has been verified. Keep an encrypted recovery snapshot, not a plaintext original.
-            File.Delete(original);
+            File.Delete(original); // Encrypted recovery snapshot replaces plaintext recovery.
             SecureFile(db);
         }
         catch
@@ -359,16 +375,13 @@ public static class DatabaseSecurity
             if (replaced && File.Exists(original))
             {
                 try { File.Replace(original, db, null); replaced = false; }
-                catch { /* Leave original available and never silently overwrite it. */ }
+                catch { /* Keep the available original; never erase it. */ }
             }
             if (!replaced && keyCreated && File.Exists(keyFile))
                 File.Delete(keyFile);
             throw;
         }
-        finally
-        {
-            if (File.Exists(candidate)) File.Delete(candidate);
-        }
+        finally { if (File.Exists(candidate)) File.Delete(candidate); }
     }
 
     public static void VerifyWithKey(string databasePath, string wrongOrActualKey)
