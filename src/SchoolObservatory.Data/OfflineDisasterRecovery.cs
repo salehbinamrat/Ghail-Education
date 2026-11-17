@@ -53,7 +53,8 @@ public static partial class OfflineDisasterRecovery
         var tempKey = keyFile + "." + Guid.NewGuid().ToString("N") + ".temporary";
         var newKey = RandomNumberGenerator.GetBytes(32);
         var moved = new List<(string From, string To)>();
-        var promoted = false;
+        var installedDb = false;
+        var installedKey = false;
         try
         {
             using (var original = DatabaseSecurity.OpenEncrypted(backup, passphrase, readOnly: true))
@@ -83,8 +84,9 @@ public static partial class OfflineDisasterRecovery
             }
 
             File.Move(tempDb, db);
+            installedDb = true;
             File.Move(tempKey, keyFile);
-            promoted = true;
+            installedKey = true;
             using (var reopened = DatabaseSecurity.OpenForRecoveryCheck(db))
                 DatabaseSecurity.ValidateRecoverySource(reopened);
             DatabaseSecurity.ProtectLocalFile(db);
@@ -93,14 +95,11 @@ public static partial class OfflineDisasterRecovery
         catch
         {
             // Do not leave an empty or partly installed database visible as successful recovery.
-            if (!promoted)
-            {
-                if (File.Exists(db)) File.Delete(db);
-                if (File.Exists(keyFile)) File.Delete(keyFile);
-                foreach (var pair in moved.AsEnumerable().Reverse())
-                    if (File.Exists(pair.To) && !File.Exists(pair.From))
-                        File.Move(pair.To, pair.From);
-            }
+            if (installedDb && File.Exists(db)) File.Delete(db);
+            if (installedKey && File.Exists(keyFile)) File.Delete(keyFile);
+            foreach (var pair in moved.AsEnumerable().Reverse())
+                if (File.Exists(pair.To) && !File.Exists(pair.From))
+                    File.Move(pair.To, pair.From);
             throw;
         }
         finally
