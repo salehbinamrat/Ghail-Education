@@ -303,6 +303,25 @@ public sealed partial class SqliteStore
         ValidateAcademicYear(year);
         using var con = Open();
         using var tx = con.BeginTransaction();
+        // Materialize current student identity and enrollment history BEFORE closing.
+        // This allows later promotion without inserting into locked historical years.
+        using (var people = Cmd(con, tx, """
+            INSERT OR IGNORE INTO student_people(id,created_utc)
+            SELECT id,created_utc FROM school_students;
+            INSERT OR IGNORE INTO student_person_links(student_id,person_id)
+            SELECT id,id FROM school_students;
+            """)) people.ExecuteNonQuery();
+        using (var history = Cmd(con, tx, """
+            INSERT INTO student_placement_events
+              (id,person_id,student_id,school_id,academic_year,grade,section,action,created_utc)
+            SELECT lower(hex(randomblob(16))),l.person_id,en.student_id,en.school_id,
+                   en.academic_year,g.grade,g.section,'legacy',en.updated_utc
+            FROM student_enrollments en JOIN school_grades g ON g.id=en.grade_id
+            JOIN student_person_links l ON l.student_id=en.student_id
+            WHERE en.academic_year=$y AND NOT EXISTS(
+              SELECT 1 FROM student_placement_events e
+              WHERE e.student_id=en.student_id AND e.academic_year=en.academic_year)
+            """, ("$y", year))) history.ExecuteNonQuery();
         using (var cmd = Cmd(con, tx, """
             UPDATE academic_years SET status='closed',is_active=0,closed_utc=$at
             WHERE year=$y AND status='open'
