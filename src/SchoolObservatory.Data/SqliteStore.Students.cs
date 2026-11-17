@@ -554,6 +554,8 @@ public sealed partial class SqliteStore
         using var tx = con.BeginTransaction();
         var school = StudentSchool(con, tx, schoolId);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // One class/section identifier lookup per distinct class, not per imported student.
+        var gradeIds = new Dictionary<(int Grade, string Section), string>();
         var ready = new List<(StudentImportRow Row, string Code, string Section, string Gender, string GradeId)>(rows.Count);
         foreach (var item in rows)
         {
@@ -567,7 +569,11 @@ public sealed partial class SqliteStore
             GradeAllowed(school, item.Grade);
             var section = SectionName(item.Section);
             var gender = StudentGender(school, item.Gender);
-            var gradeId = GradeId(con, tx, schoolId, year, item.Grade, section);
+            if (!gradeIds.TryGetValue((item.Grade, section), out var gradeId))
+            {
+                gradeId = GradeId(con, tx, schoolId, year, item.Grade, section);
+                gradeIds.Add((item.Grade, section), gradeId);
+            }
             ready.Add((item, code, section, gender, gradeId));
         }
 
