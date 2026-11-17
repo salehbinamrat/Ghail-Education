@@ -229,12 +229,13 @@ public partial class MainWindow
         var editor = Stack();
         editor.Children.Add(Label("إضافة طالب جديد إلى الكشف المحدد. لتصحيح اسم طالب موجود افتح ملفه من الجدول.", 17, true));
         var studentCode = Field(width: 170);
+        studentCode.ToolTip = "اترك الرقم المدرسي فارغا عند إضافة الطالب ليخصص البرنامج الرقم التالي تلقائيا داخل المدرسة.";
         var fullName = Field(width: 275);
         var guardianName = Field(width: 235);
         var guardianPhone = Field(width: 170);
         var gender = Choice(new[] { "ذكور", "إناث" }, 125);
         var genderField = FormField("جنس الطالب (للمدرسة المختلطة فقط)", gender);
-        var inputs = LineOfFields(("رمز الطالب", studentCode), ("الاسم الكامل", fullName),
+        var inputs = LineOfFields(("رقم الطالب (تلقائي إن كان فارغا)", studentCode), ("الاسم الكامل", fullName),
             ("اسم ولي الأمر", guardianName), ("هاتف ولي الأمر", guardianPhone));
         inputs.Children.Add(genderField);
         editor.Children.Add(inputs);
@@ -418,7 +419,7 @@ public partial class MainWindow
                 school.Gender == "مختلطة" ? gender.SelectedItem?.ToString() ?? "" : "",
                 guardianName.Text, guardianPhone.Text, notes.Text, active.IsChecked == true,
                 _store.AcademicYear));
-            Info("تم حفظ الطالب في كشف صفه.");
+            Info("تم حفظ الطالب وربطه تلقائيا بكشف صفه وإحصاء السجلات المباشرة.");
             ResetEditor(); RefreshRoster();
         }), tone: "success"));
         editor.Children.Add(actions);
@@ -556,6 +557,19 @@ public partial class MainWindow
             });
             Info("تم حفظ التعديلات على بيانات الطالب."); ShowStudentProfile(school, studentId);
         }), canEdit, "success"));
+        personal.Children.Add(Btn("حذف الطالب من الكشوف (أرشفة قابلة للاستعادة)", (_, _) => Safe(() =>
+        {
+            if (MessageBox.Show("سيتم إيقاف الطالب واستبعاده من الإحصاء المباشر، مع الاحتفاظ بنتائجه وتقييماته وتاريخه. هل تؤكد؟",
+                "تأكيد أرشفة الطالب", MessageBoxButton.YesNo,
+                MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+            _store.SaveStudent(_actor, student with { IsActive = false });
+            ShowStudentProfile(school, studentId);
+        }), canEdit && student.IsActive, "danger"));
+        personal.Children.Add(Btn("استعادة الطالب إلى الكشوف", (_, _) => Safe(() =>
+        {
+            _store.SaveStudent(_actor, student with { IsActive = true });
+            ShowStudentProfile(school, studentId);
+        }), canEdit && !student.IsActive, "secondary"));
         tabs.Items.Add(new TabItem { Header = "الملف الأساسي", Content = Box(personal) });
 
         var results = Stack();
