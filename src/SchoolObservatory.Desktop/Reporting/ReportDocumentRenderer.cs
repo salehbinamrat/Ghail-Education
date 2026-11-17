@@ -50,7 +50,7 @@ public static class ReportDocumentRenderer
             var page = new FixedPage
             {
                 Width = width, Height = height, Background = Brushes.White,
-                FlowDirection = FlowDirection.RightToLeft, FontFamily = Arial
+                FlowDirection = FlowDirection.RightToLeft
             };
             var y = Margin;
             if (!string.IsNullOrWhiteSpace(options.HeaderNote))
