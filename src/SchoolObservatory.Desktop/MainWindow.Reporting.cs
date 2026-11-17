@@ -27,7 +27,7 @@ public partial class MainWindow
             throw new UnauthorizedAccessException("لا تملك صلاحية إصدار التقارير.");
         var engine = new ReportQueryService(_store);
         var root = Stack();
-        root.Children.Add(Label("مركز التقارير والنسخ الرسمية", 21, true));
+        root.Children.Add(Label("مركز التقارير والتصدير والطباعة", 21, true));
         root.Children.Add(Label(
             "تُقرأ البيانات مباشرة من السجلات المعتمدة حسب الصلاحيات. القوالب الحالية مبدئية وليست نماذج حكومية مصدقة.", 14));
         var descriptions = new[]
