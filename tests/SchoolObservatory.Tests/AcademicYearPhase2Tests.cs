@@ -162,6 +162,22 @@ public sealed class AcademicYearPhase2Tests
     }
 
     [Fact]
+    public void SchoolScopedAccountsCannotReadOrWriteAnotherSchoolsNewProfiles()
+    {
+        var (store, owner, school, _) = Setup();
+        store.AddSchool(owner, "S02", "مدرسة ثانية", "المدينة", "حكومية", "أساسي", "ذكور");
+        var other=store.GetSchools(owner).Single(x=>x.Code=="S02");
+        store.CreateUser(owner, "school02", "Secure-School-Password-123!", Roles.Principal, school.Id);
+        var principal=store.Authenticate("school02", "Secure-School-Password-123!")!;
+        Assert.Throws<UnauthorizedAccessException>(() => store.GetSchoolInfrastructure(principal, other.Id));
+        Assert.Throws<UnauthorizedAccessException>(() => store.GetSchoolFacilities(principal, other.Id));
+        Assert.Throws<UnauthorizedAccessException>(() => store.SetSchoolFacility(principal, other.Id, "مختبر", 1, ""));
+        Assert.Throws<UnauthorizedAccessException>(() => store.AddPhysicalClassroom(principal, other.Id, "R1", "", 20));
+        Assert.Throws<UnauthorizedAccessException>(() => store.SaveSchoolInfrastructure(principal, other.Id,
+            new SchoolInfrastructure("","","","",null,null,"","",null,"")));
+    }
+
+    [Fact]
     public void ScopedSchoolAccountCannotControlAcademicYears()
     {
         var (store, owner, school, _) = Setup();
