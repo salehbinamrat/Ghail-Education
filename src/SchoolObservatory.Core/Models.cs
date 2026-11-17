@@ -48,6 +48,15 @@ public sealed record SchoolGrade(string Id, string SchoolId, string AcademicYear
 {
     public string DisplayName => $"{GradeNames.ForStage(Stage, Grade)} — الشعبة {Section}";
 }
+/// <summary>Father/mother council member belongs to exactly one school; archived records remain available.</summary>
+public sealed record ParentCouncilMember(string Id, string SchoolId, string CouncilType,
+    string FullName, string Position, string Phone, string Notes, bool IsActive);
+
+/// <summary>Current operational counts, separate from the approved official census snapshot.</summary>
+public sealed record LiveDirectoryTotals(int Schools, int ActiveStudents, int ActiveTeachers,
+    int ActiveAdministrators, int ActiveSpecialists, int Sections, int CouncilMembers,
+    bool StudentsVisible, bool StaffVisible);
+
 public sealed record SchoolStudent(string Id, string SchoolId, string StudentCode, string FullName,
     int Grade, string Section, string Gender, string GuardianName, string GuardianPhone,
     string Notes, bool IsActive, string AcademicYear);
