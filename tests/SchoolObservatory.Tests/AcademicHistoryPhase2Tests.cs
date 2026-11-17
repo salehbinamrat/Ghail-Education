@@ -324,6 +324,26 @@ public sealed class AcademicHistoryPhase2Tests
         Assert.Equal(10L, Convert.ToInt64(verify.ExecuteScalar()));
     }
 
+
+    [Fact]
+    public void LiveSchoolStatisticsFollowStudentPlacementAfterTransfer()
+    {
+        var (db, owner, a, b, _) = Prepare();
+        var id = AddStudent(db, owner, a);
+        Assert.Equal(1, db.GetLiveDirectoryTotals(owner).ActiveStudents);
+        db.OpenAcademicYear(owner, "2027/2028");
+        db.ActivateAcademicYear(owner, "2027/2028");
+        db.AddSchoolGrade(owner, b.Id, 4, "أ");
+        db.TransferStudentSchool(owner, id, b.Id, 4, "أ");
+        Assert.Equal(1, db.GetLiveDirectoryTotals(owner).ActiveStudents);
+        db.CreateUser(owner, "a-stats", "School-user-safe-654321", Roles.Entry, a.Id);
+        db.CreateUser(owner, "b-stats", "School-user-safe-654321", Roles.Entry, b.Id);
+        var userA = Assert.IsType<UserAccount>(db.Authenticate("a-stats", "School-user-safe-654321"));
+        var userB = Assert.IsType<UserAccount>(db.Authenticate("b-stats", "School-user-safe-654321"));
+        Assert.Equal(0, db.GetLiveDirectoryTotals(userA).ActiveStudents);
+        Assert.Equal(1, db.GetLiveDirectoryTotals(userB).ActiveStudents);
+    }
+
     [Fact]
     public void MigrationKeepsExistingStudentStaffAndAuditWithoutChangingIds()
     {
