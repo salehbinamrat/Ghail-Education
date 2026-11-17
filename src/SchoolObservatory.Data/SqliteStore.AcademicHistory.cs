@@ -43,6 +43,8 @@ public sealed partial class SqliteStore
                 FOREIGN KEY(grade_id,school_id,academic_year)
                     REFERENCES school_grades(id,school_id,academic_year) ON DELETE RESTRICT
             );
+            CREATE INDEX IF NOT EXISTS ix_student_history_identity_year
+                ON student_history(student_id,academic_year);
             CREATE UNIQUE INDEX IF NOT EXISTS ux_student_active_per_year
                 ON student_history(student_id,academic_year)
                 WHERE end_utc IS NULL AND status='مسجل';
@@ -389,13 +391,32 @@ public sealed partial class SqliteStore
                     FROM schools s WHERE s.id=NEW.school_id)
                 WHERE id=NEW.id AND academic_stage='';
             END;
+            CREATE TRIGGER IF NOT EXISTS p2_enrollment_conflicts BEFORE INSERT ON student_enrollments
+            WHEN EXISTS (
+                SELECT 1 FROM student_history h
+                WHERE h.student_id=NEW.student_id AND h.academic_year=NEW.academic_year
+                  AND NOT EXISTS (
+                    SELECT 1 FROM student_history current
+                    WHERE current.student_id=NEW.student_id AND current.academic_year=NEW.academic_year
+                      AND current.school_id=NEW.school_id
+                      AND current.end_utc IS NULL AND current.status='مسجل'
+                  )
+            )
+            BEGIN SELECT RAISE(ABORT,'Use controlled enrollment transfer; history already exists'); END;
             CREATE TRIGGER IF NOT EXISTS p2_enrollment_created AFTER INSERT ON student_enrollments
             BEGIN
                 INSERT INTO student_history(id,student_id,school_id,academic_year,grade_id,
                     status,start_utc,end_utc)
-                VALUES(lower(hex(randomblob(16))),NEW.student_id,NEW.school_id,NEW.academic_year,
+                SELECT lower(hex(randomblob(16))),NEW.student_id,NEW.school_id,NEW.academic_year,
                     NEW.grade_id,CASE WHEN NEW.status='مسجل' THEN 'مسجل' ELSE 'منسحب' END,
-                    NEW.updated_utc,CASE WHEN NEW.status='مسجل' THEN NULL ELSE NEW.updated_utc END);
+                    NEW.updated_utc,CASE WHEN NEW.status='مسجل' THEN NULL ELSE NEW.updated_utc END
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM student_history h WHERE h.student_id=NEW.student_id
+                    AND h.academic_year=NEW.academic_year
+                );
+                UPDATE student_history SET grade_id=NEW.grade_id
+                WHERE student_id=NEW.student_id AND school_id=NEW.school_id
+                  AND academic_year=NEW.academic_year AND end_utc IS NULL AND status='مسجل';
             END;
             CREATE TRIGGER IF NOT EXISTS p2_enrollment_changed AFTER UPDATE OF grade_id ON student_enrollments
             BEGIN
@@ -618,6 +639,14 @@ public sealed partial class SqliteStore
             throw new UnauthorizedAccessException("يتطلب النقل صلاحية المدرستين المصدر والوجهة.");
         if (action == "ترفيع")
         {
+            using (var advanced = Cmd(con, tx, """
+                SELECT EXISTS(SELECT 1 FROM student_history
+                WHERE student_id=$student AND academic_year=$year)
+                """, ("$student", studentId), ("$year", year)))
+            {
+                if (Convert.ToInt32(advanced.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
+                    throw new InvalidOperationException("سبق إنشاء قيد للطالب في العام المستهدف؛ الترفيع لا يكرر.");
+            }
             if (string.CompareOrdinal(sourceYear, year) >= 0 ||
                 grade != oldGrade + (repeat ? 0 : 1))
                 throw new InvalidOperationException("الترفيع يتطلب عاما لاحقا وصفا مطابقا للنجاح أو الإعادة.");
@@ -636,6 +665,13 @@ public sealed partial class SqliteStore
         else throw new ArgumentException("نوع انتقال الطالب غير مدعوم.");
         var school = StudentSchool(con, tx, targetSchool);
         GradeAllowed(school, grade);
+        using (var identity = Cmd(con, tx, "SELECT gender FROM school_students WHERE id=$student",
+            ("$student", studentId)))
+        {
+            var gender = identity.ExecuteScalar()?.ToString()
+                ?? throw new InvalidOperationException("هوية الطالب غير موجودة.");
+            _ = StudentGender(school, gender);
+        }
         var gradeId = GradeId(con, tx, targetSchool, year, grade, section);
         // Local student codes belong to the receiving school, while studentId is
         // immutable. Preserve the previous code at the originating institution.
