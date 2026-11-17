@@ -344,6 +344,29 @@ public sealed class DatabaseSecurityPhase1Tests
     }
 
     [Fact]
+    public void RecordVerificationRejectsDifferentRowBoundariesAndSchemas()
+    {
+        var leftPath = PathFor();
+        var rightPath = PathFor();
+        Directory.CreateDirectory(Path.GetDirectoryName(leftPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(rightPath)!);
+        const string secret = "Comparison independent cipher key for the test!";
+        using var left = DatabaseSecurity.OpenEncrypted(leftPath, secret, create: true);
+        using var right = DatabaseSecurity.OpenEncrypted(rightPath, secret, create: true);
+        using (var insert = left.CreateCommand())
+        {
+            insert.CommandText = "CREATE TABLE rows(a TEXT, b TEXT); INSERT INTO rows VALUES('alpha', 'beta');";
+            insert.ExecuteNonQuery();
+        }
+        using (var insert = right.CreateCommand())
+        {
+            insert.CommandText = "CREATE TABLE rows(a TEXT); INSERT INTO rows VALUES('alpha'), ('beta');";
+            insert.ExecuteNonQuery();
+        }
+        Assert.Throws<InvalidDataException>(() => DatabaseSecurity.CompareAllRecords(left, right));
+    }
+
+    [Fact]
     public void NewerEncryptedSchemaVersionIsNotDowngradedByOlderApplication()
     {
         var (db, owner, path) = Build();
