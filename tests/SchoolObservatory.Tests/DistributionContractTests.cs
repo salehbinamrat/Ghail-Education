@@ -32,6 +32,18 @@ public sealed class DistributionContractTests
     }
 
     [Fact]
+    public void ConcurrentCoreAndReleaseUseCommitSpecificQueuesWithoutBlockingNewerCommits()
+    {
+        foreach(var file in new[]{"windows-core.yml","windows-release.yml"})
+        {
+            var content=File.ReadAllText(RootFile(".github","workflows",file));
+            Assert.Contains("github.event.pull_request.head.sha || github.sha",
+                content,StringComparison.Ordinal);
+            Assert.Contains("cancel-in-progress: true",content,StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void WindowsReleaseBuildsAndUploadsEachFileSeparatelyAfterTests()
     {
         var workflow = File.ReadAllText(RootFile(".github", "workflows", "windows-release.yml"));
