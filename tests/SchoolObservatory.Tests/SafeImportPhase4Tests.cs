@@ -276,6 +276,39 @@ public sealed class SafeImportPhase4Tests
     }
 
     [Fact]
+    public void OneEmployeeCodeCannotCreateTwoPayrollIdentitiesAcrossSchoolsWithinSameBatch()
+    {
+        var (db,actor,_) = New();
+        db.AddSchool(actor,"B01","المدرسة الثانية","الموقع","حكومية","أساسي","ذكور");
+        var records=Table(["school_code","employee_code","full_name","category"],
+            ["A01","EMP10","الأول","معلم"],
+            ["B01","EMP10","الثاني","معلم"]);
+        var preview=Plan(db,actor,ImportEntity.Staff,"duplicate-payroll.csv",records);
+        Assert.Equal(2,preview.Rejected);
+        Assert.Contains(preview.Rows,x=>x.Status is ImportRowStatus.Conflict or ImportRowStatus.Duplicate);
+        Assert.Throws<InvalidOperationException>(()=>db.ApplyImport(actor,preview));
+        Assert.Empty(db.GetSchoolStaff(actor,db.GetSchools(actor).Single(x=>x.Code=="A01").Id));
+        Assert.Empty(db.GetSchoolStaff(actor,db.GetSchools(actor).Single(x=>x.Code=="B01").Id));
+    }
+
+    [Fact]
+    public void StudentGradeChangesCannotRewriteAcademicHistoryUsingAFileImport()
+    {
+        var (db,actor,school)=New();
+        db.AddSchoolGrade(actor,school.Id,1,"أ");
+        db.AddSchoolGrade(actor,school.Id,2,"أ");
+        db.SaveStudent(actor,new SchoolStudent("",school.Id,"S01","طالب",1,"أ","","","","",true,"2026/2027"));
+        var before=Assert.Single(db.GetStudents(actor,school.Id));
+        var proposed=Table(["school_code","student_code","full_name","grade","section"],
+            ["A01","S01","طالب","2","أ"]);
+        var preview=Plan(db,actor,ImportEntity.Students,"illegal-move.csv",proposed);
+        Assert.Equal(ImportRowStatus.Conflict,Assert.Single(preview.Rows).Status);
+        Assert.Throws<InvalidOperationException>(()=>db.ApplyImport(actor,preview));
+        Assert.Equal(1,Assert.Single(db.GetStudents(actor,school.Id)).Grade);
+        Assert.Equal(before.Id,Assert.Single(db.GetStudents(actor,school.Id)).Id);
+    }
+
+    [Fact]
     public void StalePreviewAlsoRejectsChangesToOtherFieldsNotIncludedInImport()
     {
         var (db,actor,school)=New();
