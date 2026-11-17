@@ -155,15 +155,15 @@ public sealed partial class SqliteStore
                     """,("$id",gradeId),("$school",school.Id),("$year",refreshed.AcademicYear),
                     ("$grade",grade),("$section",section),("$now",Utc())))
                     create.ExecuteNonQuery();
-                var after=JsonSerializer.Serialize(Fields(("school_id",school.Id),
+                var sectionAfter=JsonSerializer.Serialize(Fields(("school_id",school.Id),
                     ("school_code",schoolCode),("academic_year",refreshed.AcademicYear),
                     ("grade",grade.ToString(CultureInfo.InvariantCulture)),("section",section)));
-                using var change=Cmd(con,tx,"""
+                using var sectionChange=Cmd(con,tx,"""
                     INSERT INTO import_changes(batch_id,ordinal,entity_id,school_id,operation,before_json,after_json)
                     VALUES($batch,$row,$id,$school,'new','',$after)
                     """,("$batch",batchId),("$row",plan.RowNumber),("$id",gradeId),
-                    ("$school",school.Id),("$after",after));
-                change.ExecuteNonQuery();
+                    ("$school",school.Id),("$after",sectionAfter));
+                sectionChange.ExecuteNonQuery();
                 continue;
             }
             var sourceCode=LookupInput(input,preview.ColumnMap,"school_code");
