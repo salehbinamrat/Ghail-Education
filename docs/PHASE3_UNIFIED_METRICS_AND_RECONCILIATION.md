@@ -53,7 +53,7 @@ Integrity indicators raise a reviewable mismatch against target zero for:
 
 SQLite primary keys and existing UNIQUE/FK/CHECK constraints continue to enforce new student IDs, school-specific codes, section/year uniqueness, and valid references on ordinary writes. Existing ambiguous legacy records remain visible; they are not silently coerced to valid or merged.
 
-**Limitations:** Legacy staff with an undocumented real workplace may have a default original assignment lacking trustworthy effective dates. The current algorithm treats this as the stored assignment; cross-check its historical source manually before using it as a certified field census. Likewise, school-level staff identity metadata from legacy imports may contain unmatched codes. Reconciliation is a diagnostic, not an automatic approval mechanism.
+**Limitations:** Legacy staff with an undocumented real workplace may have a default original assignment lacking trustworthy effective dates. Such an undocumented legacy placement is **not counted as confirmed physical presence** unless a dated assignment or an explicit direct-service status supports it. Legacy secondment notes without a verifiable workplace ID remain manually reviewable; do not present an inferred school as a certified field census. Likewise, school-level staff identity metadata from legacy imports may contain unmatched codes. Reconciliation is a diagnostic, not an automatic approval mechanism.
 
 ## Regression and packaging gate
 
