@@ -44,13 +44,19 @@ public sealed partial class SqliteStore
     public void Initialize()
     {
         using var con = Open();
+        // Fail before changing WAL mode, running migrations or writing a schema version.
+        // Older binaries must never silently downgrade a database from a future release.
+        int databaseVersion;
+        using (var version = Cmd(con, null, "PRAGMA user_version;"))
+            databaseVersion = Convert.ToInt32(version.ExecuteScalar(), CultureInfo.InvariantCulture);
+        if (databaseVersion > 1)
+            throw new InvalidDataException("This database uses a newer unsupported schema. Open it with the matching application version.");
         using var pragma = Cmd(con, null, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;");
         pragma.ExecuteNonQuery();
         // Version 0 is legacy. Back up every existing schema before additive migrations.
-        using (var version = Cmd(con, null, "PRAGMA user_version;"))
         using (var tableCount = Cmd(con, null, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"))
         {
-            if (Convert.ToInt32(version.ExecuteScalar(), CultureInfo.InvariantCulture) < 1 &&
+            if (databaseVersion < 1 &&
                 Convert.ToInt32(tableCount.ExecuteScalar(), CultureInfo.InvariantCulture) > 0)
                 DatabaseSecurity.BackupSchemaBeforeChanges(_databasePath, _databaseKey);
         }
