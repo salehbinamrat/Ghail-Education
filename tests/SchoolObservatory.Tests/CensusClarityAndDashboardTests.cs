@@ -82,6 +82,8 @@ public sealed class CensusClarityAndDashboardTests
         Assert.Contains("الشعب الدراسية", code, StringComparison.Ordinal);
         Assert.Contains("تعبئة عدد الشعب من كشوف المدرسة", code, StringComparison.Ordinal);
         Assert.Contains("ShowCensusCore(selected.Id)", code, StringComparison.Ordinal);
+        Assert.Contains("void ValidateCensus(Action action)", code, StringComparison.Ordinal);
+        Assert.Contains("ContentScroll.ScrollToTop()", code, StringComparison.Ordinal);
     }
 
     [Fact]
