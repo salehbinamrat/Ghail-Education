@@ -19,7 +19,7 @@ public sealed partial class SqliteStore
         using var con = Open();
         using var cmd = Cmd(con, null, """
             WITH ranked AS (
-                SELECT st.id,h.school_id,st.student_code,st.full_name,
+                SELECT st.id,h.school_id,COALESCE(local.student_code,st.student_code),st.full_name,
                     g.grade,g.section,st.gender,st.guardian_name,st.guardian_phone,
                     st.notes,st.is_active,h.academic_year,
                     ROW_NUMBER() OVER (
@@ -27,6 +27,7 @@ public sealed partial class SqliteStore
                         ORDER BY h.start_utc DESC,h.id DESC) AS rn
                 FROM student_history h
                 JOIN school_students st ON st.id=h.student_id
+                LEFT JOIN student_school_codes local ON local.student_id=st.id AND local.school_id=h.school_id
                 JOIN school_grades g ON g.id=h.grade_id
                 WHERE h.school_id=$s AND h.academic_year=$year
             )
