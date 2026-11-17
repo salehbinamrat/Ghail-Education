@@ -1004,25 +1004,32 @@ public sealed partial class SqliteStore
             !AccessPolicy.CanEditStaff(actor, workSchoolId))
             throw new UnauthorizedAccessException("صلاحية المدرستين مطلوبة للنقل والانتداب.");
         var when = start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        // Intervals are inclusive. Ended assignments can be followed by another
+        // assignment, but never overlapped or retroactively reordered.
         using (var overlap = Cmd(con, tx, """
             SELECT EXISTS(SELECT 1 FROM employee_assignments
-               WHERE employee_id=$id AND start_date IS NOT NULL AND start_date>$start
-                 AND (end_date IS NULL OR end_date>=$start))
-            """, ("$id", employeeId), ("$start", when)))
+               WHERE employee_id=$id
+                 AND (
+                    (start_date IS NOT NULL AND start_date >= $start
+                       AND ($end IS NULL OR start_date <= $end))
+                    OR (end_date IS NOT NULL AND end_date >= $start
+                       AND (start_date IS NULL OR $end IS NULL OR start_date <= $end))
+                 ))
+            """, ("$id", employeeId), ("$start", when),
+            ("$end", end?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))))
         {
             if (Convert.ToInt32(overlap.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
-                throw new InvalidOperationException("تعارض مع تكليف أحدث محفوظ.");
+                throw new InvalidOperationException("تتعارض مدة هذا التكليف مع تكليف موجود.");
         }
+        // The original imported/created assignment can have an unknown start
+        // date. Close it at the day before the first explicit placement.
         using (var close = Cmd(con, tx, """
             UPDATE employee_assignments SET end_date=$previous
             WHERE employee_id=$id AND end_date IS NULL
               AND (start_date IS NULL OR start_date<$start)
             """, ("$previous", start.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
             ("$id", employeeId), ("$start", when)))
-        {
-            if (close.ExecuteNonQuery() != 1)
-                throw new InvalidOperationException("يوجد تكليف نشط متعارض؛ تعذر النقل.");
-        }
+            close.ExecuteNonQuery();
         using (var insert = Cmd(con, tx, """
             INSERT INTO employee_assignments(id,employee_id,payroll_school_id,
                 workplace_school_id,assignment_type,start_date,end_date,notes,created_utc)
