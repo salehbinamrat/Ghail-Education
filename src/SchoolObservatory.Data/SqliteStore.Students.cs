@@ -231,6 +231,16 @@ public sealed partial class SqliteStore
             ?? throw new ArgumentException($"أضف الصف {grade} / الشعبة {section} أولا قبل حفظ الطالب.");
     }
 
+    /// <summary>The original student identity remains unchanged across school placements.</summary>
+    private static bool IsStudentOriginSchool(SqliteConnection con, SqliteTransaction? tx,
+        string studentId, string schoolId)
+    {
+        using var cmd = Cmd(con, tx,
+            "SELECT EXISTS(SELECT 1 FROM school_students WHERE id=$student AND school_id=$school)",
+            ("$student", studentId), ("$school", schoolId));
+        return Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture) == 1;
+    }
+
     private static void StudentBelongs(SqliteConnection con, SqliteTransaction? tx,
         string schoolId, string studentId)
     {
@@ -408,6 +418,18 @@ public sealed partial class SqliteStore
         var gradeId = GradeId(con, tx, student.SchoolId, year, student.Grade, section);
         if (autoCode) code = NextStudentCode(con, tx, student.SchoolId);
         var id = string.IsNullOrWhiteSpace(student.Id) ? Id() : student.Id;
+        var fromAnotherSchool = !string.IsNullOrWhiteSpace(student.Id) &&
+            !IsStudentOriginSchool(con, tx, id, student.SchoolId);
+        if (fromAnotherSchool)
+        {
+            using var current = Cmd(con, tx, """
+                SELECT EXISTS(SELECT 1 FROM student_history
+                WHERE student_id=$id AND school_id=$s AND academic_year=$year
+                  AND end_utc IS NULL AND status='مسجل')
+                """, ("$id", id), ("$s", student.SchoolId), ("$year", year));
+            if (Convert.ToInt32(current.ExecuteScalar(), CultureInfo.InvariantCulture) != 1)
+                throw new UnauthorizedAccessException("لا يوجد قيد نشط للطالب في هذه المدرسة.");
+        }
         using (var duplicate = Cmd(con, tx, """
             SELECT EXISTS(SELECT 1 FROM school_students
               WHERE school_id=$s AND student_code=$code AND id<>$id)
@@ -435,8 +457,11 @@ public sealed partial class SqliteStore
                 UPDATE school_students
                 SET student_code=$code,full_name=$name,gender=$gender,guardian_name=$guardian,
                     guardian_phone=$phone,notes=$notes,is_active=$active,updated_utc=$at
-                WHERE id=$id AND school_id=$s
-                """, ("$id", id), ("$s", student.SchoolId), ("$code", code),
+                WHERE id=$id AND (school_id=$s OR EXISTS(
+                    SELECT 1 FROM student_history WHERE student_id=$id
+                      AND school_id=$s AND academic_year=$year
+                      AND end_utc IS NULL AND status='مسجل'))
+                """, ("$id", id), ("$s", student.SchoolId), ("$year", year), ("$code", code),
                 ("$name", student.FullName.Trim()), ("$gender", gender),
                 ("$guardian", student.GuardianName.Trim()), ("$phone", student.GuardianPhone.Trim()),
                 ("$notes", student.Notes.Trim()), ("$active", student.IsActive ? 1 : 0),
@@ -444,13 +469,29 @@ public sealed partial class SqliteStore
             if (update.ExecuteNonQuery() != 1)
                 throw new UnauthorizedAccessException("لا يمكن نقل طالب إلى مدرسة أخرى بهذه العملية.");
         }
-        using (var enroll = Cmd(con, tx, """
-            INSERT INTO student_enrollments(student_id,school_id,academic_year,grade_id,status,updated_utc)
-            VALUES($id,$s,$y,$g,'مسجل',$at)
-            ON CONFLICT(student_id,academic_year) DO UPDATE
-            SET grade_id=excluded.grade_id,updated_utc=excluded.updated_utc
-            """, ("$id", id), ("$s", student.SchoolId), ("$y", year), ("$g", gradeId), ("$at", Utc())))
+        if (fromAnotherSchool)
+        {
+            using var correction = Cmd(con, tx, """
+                UPDATE student_history SET grade_id=$grade
+                WHERE student_id=$id AND school_id=$school AND academic_year=$year
+                  AND end_utc IS NULL AND status='مسجل'
+                """, ("$grade", gradeId), ("$id", id),
+                ("$school", student.SchoolId), ("$year", year));
+            if (correction.ExecuteNonQuery() != 1)
+                throw new InvalidOperationException("تعذر تحديث القيد الدراسي المنقول.");
+        }
+        else
+        {
+            // The legacy enrollment stays as a compatibility anchor; the Phase 2
+            // trigger mirrors new year and class corrections into the history.
+            using var enroll = Cmd(con, tx, """
+                INSERT INTO student_enrollments(student_id,school_id,academic_year,grade_id,status,updated_utc)
+                VALUES($id,$s,$y,$g,'مسجل',$at)
+                ON CONFLICT(student_id,academic_year) DO UPDATE
+                SET grade_id=excluded.grade_id,updated_utc=excluded.updated_utc
+                """, ("$id", id), ("$s", student.SchoolId), ("$y", year), ("$g", gradeId), ("$at", Utc()));
             enroll.ExecuteNonQuery();
+        }
         Audit(con, tx, actor.Id, string.IsNullOrWhiteSpace(student.Id)
                 ? "student.create" : "student.update", id, $"school={student.SchoolId};grade={student.Grade}");
         tx.Commit();
