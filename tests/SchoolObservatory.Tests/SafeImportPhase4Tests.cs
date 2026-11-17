@@ -309,6 +309,35 @@ public sealed class SafeImportPhase4Tests
     }
 
     [Fact]
+    public void InterruptedMultiRowWriteRollsBackAllRecordsLedgerAndAudit()
+    {
+        var path=Path.Combine(Path.GetTempPath(),"phase4-interrupt-"+Guid.NewGuid()+".db");
+        var db=new SqliteStore(path);
+        db.Initialize();
+        db.InitializeAdministrator("غيل بن يمين","2026/2027","founder","Strong-Founder-Password-123!");
+        var owner=db.Authenticate("founder","Strong-Founder-Password-123!")!;
+        db.AddSchool(owner,"A01","مدرسة","القرية","حكومية","أساسي","ذكور");
+        var import=Table(["code","name","zone","ownership","stage"],
+            ["NEW1","الأولى","القرية","حكومية","أساسي"],
+            ["NEW2","الثانية","القرية","حكومية","أساسي"]);
+        var preview=Plan(db,owner,ImportEntity.Schools,"interrupted.csv",import);
+        Assert.True(preview.CanCommit);
+        using(var con=DatabaseSecurity.OpenForRegressionTest(path))
+        using(var cmd=con.CreateCommand())
+        {
+            cmd.CommandText="""
+                CREATE TRIGGER phase4_simulated_interruption
+                BEFORE INSERT ON schools WHEN NEW.code='NEW2'
+                BEGIN SELECT RAISE(ABORT,'simulated IO failure at second record'); END;
+                """;
+            cmd.ExecuteNonQuery();
+        }
+        Assert.ThrowsAny<Exception>(()=>db.ApplyImport(owner,preview));
+        Assert.Single(db.GetSchools(owner));
+        Assert.Empty(db.GetImportBatches(owner));
+    }
+
+    [Fact]
     public void StalePreviewAlsoRejectsChangesToOtherFieldsNotIncludedInImport()
     {
         var (db,actor,school)=New();
