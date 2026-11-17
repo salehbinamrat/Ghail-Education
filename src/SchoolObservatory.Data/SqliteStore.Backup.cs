@@ -162,7 +162,7 @@ public sealed partial class SqliteStore
                 if (File.Exists(_databasePath + "-wal") || File.Exists(_databasePath + "-shm"))
                     throw new IOException("WAL is still in use; restore cancelled without changing the database.");
 
-                File.Replace(candidate, _databasePath, rollback);
+                DatabaseSecurity.AtomicReplace(candidate, _databasePath, rollback);
                 replaced = true;
                 using (var final = Open())
                 using (var original = DatabaseSecurity.OpenEncrypted(backupPath, passphrase, readOnly: true))
