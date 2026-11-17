@@ -354,7 +354,7 @@ public sealed partial class SqliteStore
             JOIN student_enrollments en ON en.student_id=st.id AND en.school_id=st.school_id
             JOIN school_grades g ON g.id=en.grade_id AND g.school_id=en.school_id
                 AND g.academic_year=en.academic_year
-            WHERE st.school_id=$s AND en.academic_year=$y
+            WHERE st.school_id=$s AND en.academic_year=$y AND en.status='مسجل'
                 AND ($class IS NULL OR en.grade_id=$class)
             ORDER BY g.grade,g.section,st.full_name,st.student_code
             """, ("$s", schoolId), ("$y", year), ("$class", gradeId));
