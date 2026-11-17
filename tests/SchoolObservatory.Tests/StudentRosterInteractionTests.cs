@@ -26,7 +26,7 @@ public sealed class StudentRosterInteractionTests
         Assert.Empty(SchoolStudentSearch.Find(students, "غير موجود"));
     }
 
-    private static string ReadProjectSource()
+    private static string ReadProjectSource(string filename = "MainWindow.Students.cs")
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
         while (directory is not null &&
@@ -34,7 +34,7 @@ public sealed class StudentRosterInteractionTests
             directory = directory.Parent;
         if (directory is null) throw new DirectoryNotFoundException("Solution root missing.");
         return File.ReadAllText(Path.Combine(directory.FullName,
-            "src", "SchoolObservatory.Desktop", "MainWindow.Students.cs"));
+            "src", "SchoolObservatory.Desktop", filename));
     }
 
     [Fact]
@@ -72,10 +72,14 @@ public sealed class StudentRosterInteractionTests
     [Fact]
     public void StudentImportDisablesRepeatedExecutionAndRestoresControls()
     {
-        var source = ReadProjectSource();
-        Assert.Contains("if (isImporting) return;", source, StringComparison.Ordinal);
-        Assert.Contains("isImporting = true;", source, StringComparison.Ordinal);
-        Assert.Contains("isImporting = false;", source, StringComparison.Ordinal);
-        Assert.Contains("finally", source, StringComparison.Ordinal);
+        var studentPage = ReadProjectSource();
+        var wizard = ReadProjectSource("MainWindow.ImportWizard.cs");
+        Assert.Contains("ShowImportWizard(ImportEntity.Students", studentPage, StringComparison.Ordinal);
+        Assert.Contains("if (importBusy) return false;", wizard, StringComparison.Ordinal);
+        Assert.Contains("importBusy = true;", wizard, StringComparison.Ordinal);
+        Assert.Contains("importBusy = false;", wizard, StringComparison.Ordinal);
+        Assert.Contains("category.IsEnabled = false;", wizard, StringComparison.Ordinal);
+        Assert.Contains("category.IsEnabled = true;", wizard, StringComparison.Ordinal);
+        Assert.Contains("finally", wizard, StringComparison.Ordinal);
     }
 }
