@@ -319,7 +319,9 @@ public sealed class AcademicHistoryPhase2Tests
             cmd.CommandText = "DELETE FROM enrollment_rows WHERE grade='3'";
             Assert.Throws<Microsoft.Data.Sqlite.SqliteException>(() => cmd.ExecuteNonQuery());
         }
-        Assert.Equal(10, db.GetLatestSubmission(owner, a.Id)!.Data.Rows.Single().Boys);
+        using var verify = con.CreateCommand();
+        verify.CommandText = "SELECT boys FROM enrollment_rows WHERE grade='3'";
+        Assert.Equal(10L, Convert.ToInt64(verify.ExecuteScalar()));
     }
 
     [Fact]
