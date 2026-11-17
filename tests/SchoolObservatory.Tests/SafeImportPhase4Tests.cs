@@ -79,6 +79,26 @@ public sealed class SafeImportPhase4Tests
     }
 
     [Fact]
+    public void PhysicalDeletionRequiresArchivedEmptySchoolAndExactConfirmationCode()
+    {
+        var (db,actor,school)=New();
+        Assert.Throws<InvalidOperationException>(() =>
+            db.DeleteEmptySchool(actor,school.Id,school.Code));
+        db.AddSchoolGrade(actor,school.Id,1,"أ");
+        db.UpdateSchool(actor,school with {IsActive=false});
+        Assert.Throws<InvalidOperationException>(() =>
+            db.DeleteEmptySchool(actor,school.Id,school.Code));
+        Assert.Single(db.GetSchools(actor));
+
+        db.AddSchool(actor,"EMPTY","مدرسة فارغة","القرية","حكومية","أساسي","ذكور");
+        var unused=db.GetSchools(actor).Single(x=>x.Code=="EMPTY");
+        db.UpdateSchool(actor,unused with {IsActive=false});
+        Assert.Throws<ArgumentException>(() => db.DeleteEmptySchool(actor,unused.Id,"WRONG"));
+        db.DeleteEmptySchool(actor,unused.Id,unused.Code);
+        Assert.DoesNotContain(db.GetSchools(actor),x=>x.Id==unused.Id);
+    }
+
+    [Fact]
     public void PreviewShowsOldNewAndBlankCellsDoNotEraseExistingValues()
     {
         var (db, actor, school) = New();
