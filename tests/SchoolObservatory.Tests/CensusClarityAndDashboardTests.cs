@@ -81,6 +81,21 @@ public sealed class CensusClarityAndDashboardTests
         Assert.Contains("CensusNumberInput.ParseNonNegative", code, StringComparison.Ordinal);
         Assert.Contains("الشعب الدراسية", code, StringComparison.Ordinal);
         Assert.Contains("تعبئة عدد الشعب من كشوف المدرسة", code, StringComparison.Ordinal);
+        Assert.Contains("ShowCensusCore(selected.Id)", code, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PagesReturnToTheTopOnNavigationRatherThanOpeningHalfwayDown()
+    {
+        DirectoryInfo? dir = new(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "SchoolObservatory.sln")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+        var folder = Path.Combine(dir!.FullName, "src", "SchoolObservatory.Desktop");
+        var xaml = File.ReadAllText(Path.Combine(folder, "MainWindow.xaml"));
+        var code = File.ReadAllText(Path.Combine(folder, "MainWindow.xaml.cs"));
+        Assert.Contains("x:Name=\"ContentScroll\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("ContentScroll.ScrollToTop()", code, StringComparison.Ordinal);
     }
 
     private static int CountOccurrences(string value, string text) =>
