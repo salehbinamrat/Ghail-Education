@@ -88,7 +88,7 @@ public partial class MainWindow
         var selectedCount = Label("عدد الطلاب في الكشف: 0", 14, true);
         selectedCount.Foreground = new SolidColorBrush(Color.FromRgb(5, 91, 131));
         root.Children.Add(Box(selectedCount, new Thickness(12)));
-        var search = Field(width: 285);
+        var search = Field(_navigationContext.Get("students.search"), width: 285);
         search.ToolTip = "بحث محلي برمز الطالب أو اسمه أو ولي الأمر أو هاتفه، مع دعم الأرقام العربية";
         root.Children.Add(Box(LineOfFields(("بحث في كشف الصف", search)), new Thickness(12)));
 
@@ -98,7 +98,8 @@ public partial class MainWindow
             ("المرحلة / الصف", "GradeName", false), ("الشعبة", "Section", false),
             ("ولي الأمر", "GuardianName", false), ("الحالة", "StatusArabic", false));
         roster.MaxHeight = 480;
-        root.Children.Add(Box(roster));
+        root.Children.Add(Box(TableSurface(roster,
+            "لا يوجد طلاب في الشعبة المختارة أو لا توجد نتائج مطابقة للبحث.")));
         var exportRoster = Btn("تصدير كشف الصف CSV", (_, _) => Safe(() =>
         {
             if (schoolPicker.SelectedItem is not School school ||
@@ -254,12 +255,20 @@ public partial class MainWindow
         var active = new CheckBox { Content = "الطالب مسجل", IsChecked = true,
             Margin = new Thickness(12, 8, 12, 10) };
         editor.Children.Add(active);
+        var validation = new InlineValidationPresenter();
+        editor.Children.Add(validation.Message);
+        var studentFields = new Dictionary<string, Control>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["full_name"] = fullName, ["guardian_phone"] = guardianPhone,
+            ["gender"] = gender
+        };
         void ResetEditor()
         {
             roster.SelectedItem = null;
             studentCode.Text = ""; fullName.Text = "";
             guardianName.Text = ""; guardianPhone.Text = ""; notes.Text = "";
             active.IsChecked = true;
+            validation.Clear();
             gender.SelectedIndex = schoolPicker.SelectedItem is School selectedSchool &&
                 selectedSchool.Gender == "مختلطة" ? -1 : 0;
         }
@@ -280,9 +289,9 @@ public partial class MainWindow
                 selectedCount.Text = selectedSchool is null
                     ? "اختر المدرسة لعرض كشوف الطلاب."
                     : "لا يوجد كشف محدد. أضف صفا وشعبة أو اختر كشفا موجودا.";
-                editor.IsEnabled = false;
-                exportRoster.IsEnabled = false;
-                printRoster.IsEnabled = false;
+                editor.Visibility = Visibility.Collapsed;
+                exportRoster.Visibility = Visibility.Collapsed;
+                printRoster.Visibility = Visibility.Collapsed;
                 return;
             }
             if (reload || cachedSchoolId != selectedSchool.Id || cachedGradeId != selectedGrade.Id)
@@ -298,10 +307,11 @@ public partial class MainWindow
             selectedCount.Text = filter.Length == 0
                 ? $"عدد الطلاب في الكشف: {students.Count}"
                 : $"نتائج البحث: {visible.Count} من أصل {students.Count} طالب";
-            editor.IsEnabled = AccessPolicy.CanManageStudents(_actor, selectedSchool.Id) &&
+            var canManage = AccessPolicy.CanManageStudents(_actor, selectedSchool.Id) &&
                 selectedGrade is not null;
-            exportRoster.IsEnabled = editor.IsEnabled;
-            printRoster.IsEnabled = editor.IsEnabled;
+            editor.Visibility = canManage ? Visibility.Visible : Visibility.Collapsed;
+            exportRoster.Visibility = canManage ? Visibility.Visible : Visibility.Collapsed;
+            printRoster.Visibility = canManage ? Visibility.Visible : Visibility.Collapsed;
         }
 
         var newGrade = new ComboBox
@@ -346,6 +356,7 @@ public partial class MainWindow
         bool suppressSearch = false;
         void ClearSearch()
         {
+            _navigationContext.Clear("students.search");
             suppressSearch = true;
             try { search.Clear(); }
             finally { suppressSearch = false; }
@@ -360,14 +371,19 @@ public partial class MainWindow
             {
                 gradePicker.ItemsSource = available;
                 gradePicker.SelectedItem = (selectId is not null
-                    ? available.FirstOrDefault(x => x.Id == selectId) : null)
+                    ? available.FirstOrDefault(x => x.Id == selectId)
+                    : preferredGrade is null ? available.FirstOrDefault(
+                        x => x.Id == _navigationContext.Get("students.grade")) : null)
                     ?? (preferredGrade is not null
                         ? available.FirstOrDefault(x => x.Grade == preferredGrade && x.Section == preferredSection)
                         : null)
                     ?? available.FirstOrDefault();
             }
             finally { suppressGradeSelection = false; }
-            newGradePanel.IsEnabled = AccessPolicy.CanManageStudents(_actor, school.Id);
+            if (gradePicker.SelectedItem is SchoolGrade chosen)
+                _navigationContext.Set("students.grade", chosen.Id);
+            newGradePanel.Visibility = AccessPolicy.CanManageStudents(_actor, school.Id)
+                ? Visibility.Visible : Visibility.Collapsed;
             var options = GradeNames.Allowed(school.Stage)
                 .Select(n => new GradeChoice(n, GradeNames.ForStage(school.Stage, n)))
                 .ToArray();
@@ -383,13 +399,25 @@ public partial class MainWindow
         }
         search.TextChanged += (_, _) =>
         {
-            if (!suppressSearch) Safe(() => RefreshRoster(false));
+            if (suppressSearch) return;
+            _navigationContext.Set("students.search", search.Text);
+            Safe(() => RefreshRoster(false));
         };
-        schoolPicker.SelectionChanged += (_, _) => Safe(() => { ClearSearch(); RefillGrades(); });
+        bool restoringInitialSchool = true;
+        schoolPicker.SelectionChanged += (_, _) => Safe(() =>
+        {
+            if (!restoringInitialSchool) ClearSearch();
+            if (schoolPicker.SelectedItem is School school)
+                _navigationContext.Set("students.school", school.Id);
+            RefillGrades();
+            restoringInitialSchool = false;
+        });
         gradePicker.SelectionChanged += (_, _) => Safe(() =>
         {
             if (suppressGradeSelection) return;
             ClearSearch(); ResetEditor(); RefreshRoster();
+            if (gradePicker.SelectedItem is SchoolGrade selectedGrade)
+                _navigationContext.Set("students.grade", selectedGrade.Id);
             if (gradePicker.SelectedItem is SchoolGrade current)
             {
                 newGrade.SelectedItem = (newGrade.ItemsSource as IEnumerable<GradeChoice>)
@@ -416,19 +444,29 @@ public partial class MainWindow
 
         var actions = new WrapPanel();
         actions.Children.Add(Btn("مسح الحقول / طالب جديد", (_, _) => ResetEditor(), tone: "secondary"));
-        actions.Children.Add(Btn("حفظ بيانات الطالب", (_, _) => Safe(() =>
+        actions.Children.Add(Btn("حفظ بيانات الطالب", (_, _) =>
         {
             if (schoolPicker.SelectedItem is not School school ||
                 gradePicker.SelectedItem is not SchoolGrade grade)
-                throw new InvalidOperationException("اختر المدرسة والصف والشعبة أولا.");
-            _store.SaveStudent(_actor, new SchoolStudent("", school.Id,
-                studentCode.Text, fullName.Text, grade.Grade, grade.Section,
-                school.Gender == "مختلطة" ? gender.SelectedItem?.ToString() ?? "" : "",
-                guardianName.Text, guardianPhone.Text, notes.Text, active.IsChecked == true,
-                _store.AcademicYear));
-            Info("تم حفظ الطالب وربطه تلقائيا بكشف صفه وإحصاء السجلات المباشرة.");
-            ResetEditor(); RefreshRoster();
-        }), tone: "success"));
+            {
+                validation.ShowError("اختر المدرسة والصف والشعبة أولا.");
+                return;
+            }
+            if (!validation.Show(StudentFormValidator.Validate(fullName.Text, guardianPhone.Text,
+                    gender.SelectedItem?.ToString(), school.Gender == "مختلطة"),
+                    studentFields)) return;
+            try
+            {
+                _store.SaveStudent(_actor, new SchoolStudent("", school.Id,
+                    studentCode.Text, fullName.Text, grade.Grade, grade.Section,
+                    school.Gender == "مختلطة" ? gender.SelectedItem?.ToString() ?? "" : "",
+                    guardianName.Text, guardianPhone.Text, notes.Text, active.IsChecked == true,
+                    _store.AcademicYear));
+                Info("تم حفظ الطالب وربطه تلقائيا بكشف صفه وإحصاء السجلات المباشرة.");
+                ResetEditor(); RefreshRoster();
+            }
+            catch (Exception ex) { validation.ShowError(ex.Message); }
+        }, tone: "success"));
         editor.Children.Add(actions);
         root.Children.Add(Box(editor));
 
@@ -449,7 +487,8 @@ public partial class MainWindow
         };
 
         Display("الطلاب والصفوف", root);
-        schoolPicker.SelectedItem = schools.FirstOrDefault(x => x.Id == preferredSchool) ?? schools[0];
+        schoolPicker.SelectedItem = schools.FirstOrDefault(x => x.Id ==
+            (preferredSchool ?? _navigationContext.Get("students.school"))) ?? schools[0];
     }
 
     private void ShowStudentProfile(School school, string studentId, int selectedTab = 0)

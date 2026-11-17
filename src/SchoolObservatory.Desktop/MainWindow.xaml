@@ -21,7 +21,7 @@
       </DockPanel>
     </Border>
     <Grid Grid.Column="1">
-      <Grid.RowDefinitions><RowDefinition Height="Auto" MinHeight="72"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+      <Grid.RowDefinitions><RowDefinition Height="Auto" MinHeight="72"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
       <Border Grid.Row="0" Background="White" BorderBrush="#D5EAF2" BorderThickness="0,0,0,1" Padding="18,14">
         <Grid x:Name="HeaderLayout" FlowDirection="RightToLeft">
           <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -43,6 +43,13 @@
       <ScrollViewer x:Name="ContentScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
         <ContentControl x:Name="ContentHost" Margin="12,12"/>
       </ScrollViewer>
+      <Border Grid.Row="2" BorderBrush="#BDD9E3" BorderThickness="0,1,0,0"
+              Background="White" Padding="12,6">
+        <TextBlock x:Name="StatusMessage" Visibility="Collapsed" FontSize="13"
+                   Foreground="#065D67" FontFamily="Arial" FontWeight="Bold"
+                   TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"
+                   AutomationProperties.Name="نتيجة العملية الحالية"/>
+      </Border>
     </Grid>
   </Grid>
 </Window>

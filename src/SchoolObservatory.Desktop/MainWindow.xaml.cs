@@ -190,6 +190,11 @@ public partial class MainWindow : Window
 
     private void Display(string title, UIElement body)
     {
+        if (!string.Equals(SectionTitle.Text, title, StringComparison.Ordinal))
+        {
+            StatusMessage.Text = "";
+            StatusMessage.Visibility = Visibility.Collapsed;
+        }
         SectionTitle.Text = title;
         ContentHost.Content = body;
         // Opening a different page or profile should start at its heading, not at
@@ -347,11 +352,19 @@ public partial class MainWindow : Window
         try { action(); }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "المرصد المدرسي — تنبيه", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ShowStatus(ex.Message, isError: true);
         }
     }
 
-    private static void Info(string text) => MessageBox.Show(text, "المرصد المدرسي", MessageBoxButton.OK, MessageBoxImage.Information);
+    private void ShowStatus(string message, bool isError = false)
+    {
+        StatusMessage.Text = message;
+        StatusMessage.Foreground = new SolidColorBrush(isError
+            ? Color.FromRgb(161, 30, 53) : Color.FromRgb(6, 93, 103));
+        StatusMessage.Visibility = Visibility.Visible;
+    }
+
+    private void Info(string text) => ShowStatus(text);
     private void Logout_Click(object sender, RoutedEventArgs e)
     {
         LogoutRequested = true;
@@ -567,7 +580,7 @@ public partial class MainWindow : Window
         var unified = Stack();
         unified.Children.Add(Label("دليل الكادر الوظيفي الموحد — جميع المدارس المصرح لك بها", 18, true));
         unified.Children.Add(Label("المدرسة التي يتبعها الموظف مستقلة عن جهة عمله الفعلية؛ انقر مرتين لفتح ملفه.", 14));
-        var districtSearch = Field(width: 350);
+        var districtSearch = Field(_navigationContext.Get("staff.search"), width: 350);
         districtSearch.ToolTip = "ابحث بالاسم أو الرقم أو المدرسة أو الجهة المنتدب إليها";
         unified.Children.Add(LineOfFields(("بحث الكادر على مستوى المديرية", districtSearch)));
         var districtGrid = GridFor(districtPeople,
@@ -581,16 +594,22 @@ public partial class MainWindow : Window
             ("جهة العمل الفعلية", "EffectiveWorkplace", false),
             ("القيد", "ActiveLabel", false));
         districtGrid.MaxHeight = 370;
+        districtGrid.ItemsSource = DirectorySearch.FindDistrictStaff(
+            districtPeople, districtSearch.Text);
         districtSearch.TextChanged += (_, _) =>
+        {
+            _navigationContext.Set("staff.search", districtSearch.Text);
             districtGrid.ItemsSource = DirectorySearch.FindDistrictStaff(
                 districtPeople, districtSearch.Text);
+        };
         districtGrid.MouseDoubleClick += (_, e) =>
         {
             if (IsDoubleClickOnGridRow(e.OriginalSource, districtGrid) &&
                 districtGrid.SelectedItem is DistrictStaffDirectoryRow selectedPerson)
                 Safe(() => ShowStaffProfile(selectedPerson.SchoolId, selectedPerson.StaffId));
         };
-        unified.Children.Add(districtGrid);
+        unified.Children.Add(TableSurface(districtGrid,
+            "لا يوجد موظفون يطابقون البحث في الدليل الموحد."));
         unified.Children.Add(Btn("فتح الملف الوظيفي المحدد", (_, _) => Safe(() =>
         {
             if (districtGrid.SelectedItem is not DistrictStaffDirectoryRow selectedPerson)
@@ -637,8 +656,9 @@ public partial class MainWindow : Window
             ("الجنس", "Gender", false),
             ("نشط", "IsActive", false));
         staffGrid.MaxHeight = 370;
-        root.Children.Add(Box(staffGrid));
-        var staffSearch = Field(width: 340);
+        root.Children.Add(Box(TableSurface(staffGrid,
+            "لا توجد سجلات كادر مطابقة في المدرسة المختارة.")));
+        var staffSearch = Field(_navigationContext.Get("staff.local-search"), width: 340);
         staffSearch.ToolTip = "ابحث بالاسم أو الرقم الوظيفي أو التخصص أو المؤهل";
         root.Children.Add(Box(LineOfFields(("بحث سريع في كشف الكادر", staffSearch))));
         IReadOnlyList<SchoolStaff> staffCache = Array.Empty<SchoolStaff>();
@@ -694,6 +714,13 @@ public partial class MainWindow : Window
         }
         editor.Children.Add(fields);
         editor.Children.Add(active);
+        var validation = new InlineValidationPresenter();
+        editor.Children.Add(validation.Message);
+        var staffFields = new Dictionary<string, Control>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["employee_code"] = employeeCode, ["full_name"] = fullName,
+            ["category"] = category, ["gender"] = gender
+        };
         SchoolStaff? selected = null;
 
         void Clear()
@@ -703,6 +730,7 @@ public partial class MainWindow : Window
             employeeCode.Text = ""; fullName.Text = ""; job.Text = "";
             specialization.Text = ""; qualification.Text = "";
             category.SelectedIndex = 0; gender.SelectedIndex = 2; active.IsChecked = true;
+            validation.Clear();
         }
 
         staffGrid.SelectionChanged += (_, _) =>
@@ -725,30 +753,47 @@ public partial class MainWindow : Window
             if (schoolBox.SelectedItem is not School school) return;
             staffCache = _store.GetSchoolStaff(_actor, school.Id);
             staffGrid.ItemsSource = DirectorySearch.FindStaff(staffCache, staffSearch.Text);
-            editor.IsEnabled = AccessPolicy.CanEditStaff(_actor, school.Id);
+            editor.Visibility = AccessPolicy.CanEditStaff(_actor, school.Id)
+                ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        schoolBox.SelectionChanged += (_, _) => Safe(Refresh);
+        schoolBox.SelectionChanged += (_, _) =>
+        {
+            if (schoolBox.SelectedItem is School school)
+                _navigationContext.Set("staff.school", school.Id);
+            Safe(Refresh);
+        };
         staffSearch.TextChanged += (_, _) =>
         {
+            _navigationContext.Set("staff.local-search", staffSearch.Text);
             Clear();
             staffGrid.ItemsSource = DirectorySearch.FindStaff(staffCache, staffSearch.Text);
         };
 
         var actions = new WrapPanel();
         actions.Children.Add(Btn("سجل جديد", (_, _) => Clear()));
-        actions.Children.Add(Btn("حفظ الموظف", (_, _) => Safe(() =>
+        actions.Children.Add(Btn("حفظ الموظف", (_, _) =>
         {
             if (schoolBox.SelectedItem is not School school)
-                throw new InvalidOperationException("حدد المدرسة أولا.");
-            var staff = new SchoolStaff(selected?.Id ?? "", school.Id, employeeCode.Text,
-                fullName.Text, category.SelectedItem?.ToString() ?? "", job.Text,
-                specialization.Text, qualification.Text,
-                gender.SelectedItem?.ToString() ?? "غير محدد", active.IsChecked == true);
-            _store.SaveSchoolStaff(_actor, staff);
-            Info("تم حفظ سجل الموظف وتحديث كشف المدرسة والدليل الموحد.");
-            ShowStaffCore(school.Id);
-        })));
+            {
+                validation.ShowError("حدد المدرسة أولا.");
+                return;
+            }
+            if (!validation.Show(StaffFormValidator.Validate(employeeCode.Text, fullName.Text,
+                    category.SelectedItem?.ToString(), gender.SelectedItem?.ToString()),
+                    staffFields)) return;
+            try
+            {
+                var staff = new SchoolStaff(selected?.Id ?? "", school.Id, employeeCode.Text,
+                    fullName.Text, category.SelectedItem?.ToString() ?? "", job.Text,
+                    specialization.Text, qualification.Text,
+                    gender.SelectedItem?.ToString() ?? "غير محدد", active.IsChecked == true);
+                _store.SaveSchoolStaff(_actor, staff);
+                Info("تم حفظ سجل الموظف وتحديث كشف المدرسة والدليل الموحد.");
+                ShowStaffCore(school.Id);
+            }
+            catch (Exception ex) { validation.ShowError(ex.Message); }
+        }));
         actions.Children.Add(Btn("حذف الموظف من الكشوف (أرشفة)", (_, _) => Safe(() =>
         {
             if (selected is null) throw new InvalidOperationException("حدد الموظف من كشف الكادر أولا.");
@@ -776,12 +821,14 @@ public partial class MainWindow : Window
         schoolBox.SelectionChanged += (_, _) =>
         {
             if (schoolBox.SelectedItem is School school)
-                importPanel.IsEnabled = AccessPolicy.CanEditStaff(_actor, school.Id);
+                importPanel.Visibility = AccessPolicy.CanEditStaff(_actor, school.Id)
+                    ? Visibility.Visible : Visibility.Collapsed;
         };
         root.Children.Add(Box(importPanel));
         root.Children.Add(Box(editor));
         Display("كادر المدارس والسجلات", root);
-        schoolBox.SelectedItem = schools.FirstOrDefault(s => s.Id == preferredSchoolId) ?? schools[0];
+        schoolBox.SelectedItem = schools.FirstOrDefault(s => s.Id ==
+            (preferredSchoolId ?? _navigationContext.Get("staff.school"))) ?? schools[0];
     }
 
     private sealed class EnrollmentInput

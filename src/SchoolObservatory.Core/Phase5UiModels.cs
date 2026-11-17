@@ -106,3 +106,47 @@ public static class SchoolFormValidator
         }
     }
 }
+
+
+/// <summary>Optional inline validation; the database enforces authority and all invariants.</summary>
+public static class StaffFormValidator
+{
+    public static IReadOnlyList<UiValidationIssue> Validate(string? employeeCode,
+        string? fullName, string? category, string? gender)
+    {
+        var errors = new List<UiValidationIssue>();
+        if (string.IsNullOrWhiteSpace(employeeCode))
+            errors.Add(new("employee_code", "أدخل الرقم الوظيفي."));
+        else if (employeeCode.Length > 40)
+            errors.Add(new("employee_code", "الرقم الوظيفي طويل جدا."));
+        if (string.IsNullOrWhiteSpace(fullName))
+            errors.Add(new("full_name", "أدخل الاسم الكامل للموظف."));
+        else if (fullName.Length > 180)
+            errors.Add(new("full_name", "اسم الموظف طويل جدا."));
+        if (category is not ("معلم" or "إداري" or "أخصائي اجتماعي"))
+            errors.Add(new("category", "اختر فئة الكادر الوظيفي."));
+        if (gender is not ("ذكور" or "إناث" or "غير محدد"))
+            errors.Add(new("gender", "اختر الجنس من الخيارات المتاحة."));
+        return errors;
+    }
+}
+
+public static class StudentFormValidator
+{
+    public static IReadOnlyList<UiValidationIssue> Validate(string? fullName,
+        string? guardianPhone, string? gender, bool mixedSchool)
+    {
+        var errors = new List<UiValidationIssue>();
+        if (string.IsNullOrWhiteSpace(fullName))
+            errors.Add(new("full_name", "أدخل الاسم الكامل للطالب."));
+        else if (fullName.Length > 180)
+            errors.Add(new("full_name", "اسم الطالب يتجاوز 180 حرفا."));
+        var phone = guardianPhone ?? "";
+        if (phone.Length > 30 || phone.Any(ch =>
+                !(char.IsAsciiDigit(ch) || ch is '+' or '-' or ' ')))
+            errors.Add(new("guardian_phone", "رقم هاتف ولي الأمر غير صحيح؛ استخدم أرقاما إنجليزية."));
+        if (mixedSchool && gender is not ("ذكور" or "إناث"))
+            errors.Add(new("gender", "اختر جنس الطالب في المدرسة المختلطة."));
+        return errors;
+    }
+}

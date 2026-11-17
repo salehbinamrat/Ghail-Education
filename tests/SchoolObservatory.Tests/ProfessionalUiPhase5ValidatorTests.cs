@@ -37,4 +37,25 @@ public sealed class ProfessionalUiPhase5ValidatorTests
         Assert.Contains(issues,x=>x.Field=="name");
         Assert.DoesNotContain(issues,x=>x.Field=="zone");
     }
+
+    [Fact]
+    public void StaffEditorValidatesIdentityFieldsWithoutChangingRecords()
+    {
+        var issues = StaffFormValidator.Validate("","", "غير معروف", "غير معروف");
+        Assert.Contains(issues, x => x.Field == "employee_code");
+        Assert.Contains(issues, x => x.Field == "full_name");
+        Assert.Contains(issues, x => x.Field == "category");
+        Assert.Contains(issues, x => x.Field == "gender");
+        Assert.Empty(StaffFormValidator.Validate("EMP-1","المعلم","معلم","ذكور"));
+    }
+
+    [Fact]
+    public void StudentEditorRequiresGenderOnlyForMixedSchools()
+    {
+        Assert.Contains(StudentFormValidator.Validate("سالم","7775555","",true),
+            x => x.Field == "gender");
+        Assert.Empty(StudentFormValidator.Validate("سالم","7775555","",false));
+        Assert.Contains(StudentFormValidator.Validate("سالم","=NOW()","ذكور",true),
+            x => x.Field == "guardian_phone");
+    }
 }
