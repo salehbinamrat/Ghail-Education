@@ -45,6 +45,8 @@ public sealed class StudentProfileUiContractTests
         Assert.Contains("name.IsReadOnly = !canEdit;", source, StringComparison.Ordinal);
         Assert.Contains("notes.IsReadOnly = !canEdit;", source, StringComparison.Ordinal);
         Assert.Contains("resultEditor.IsEnabled = canEvaluate;", source, StringComparison.Ordinal);
+        Assert.Contains("var canEvaluate = student.IsActive &&", source, StringComparison.Ordinal);
+        Assert.Contains("}), canEvaluate, \"success\"));", source, StringComparison.Ordinal);
     }
 
     [Fact]
