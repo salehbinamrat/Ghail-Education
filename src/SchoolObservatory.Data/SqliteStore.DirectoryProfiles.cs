@@ -214,6 +214,21 @@ public sealed partial class SqliteStore
             ("$notes", details.Notes.Trim()), ("$at", Utc()));
         if (cmd.ExecuteNonQuery() != 1)
             throw new UnauthorizedAccessException("لم يعثر على الموظف ضمن المدرسة المحددة.");
+        // Keep the normalized employment identity synchronized with the Phase 1 form.
+        // Changing the active workplace is NOT a second employee or a payroll transfer.
+        using (var career = Cmd(con, tx, """
+            UPDATE employee_identities SET employment_category=$type,
+                employment_year=$employment,contract_year=$contract,
+                qualification_year=$qualification,updated_utc=$at
+            WHERE id=$id AND original_payroll_school_id=$school
+            """, ("$type", details.EmploymentType),
+            ("$employment", details.EmploymentYear), ("$contract", details.ContractYear),
+            ("$qualification", details.QualificationYear), ("$at", Utc()),
+            ("$id", staffId), ("$school", schoolId)))
+        {
+            if (career.ExecuteNonQuery() != 1)
+                throw new InvalidOperationException("هوية الموظف غير متزامنة مع سجل المدرسة.");
+        }
         Audit(con, tx, actor.Id, "staff.personnel_update", staffId,
             $"school={schoolId};employment={details.EmploymentType};assignment={details.AssignmentStatus}");
         tx.Commit();
