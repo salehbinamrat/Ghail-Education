@@ -88,13 +88,31 @@ public sealed partial class SqliteStore
             if(entity==ImportEntity.Staff &&
                 !AccessPolicy.CanEditStaff(actor,change.SchoolId))
                 throw new UnauthorizedAccessException("لا تملك صلاحية تعديل كادر هذه المدرسة.");
-            var key=entity==ImportEntity.Schools?change.After["code"] :
-                change.After["employee_code"];
-            var loaded=ImportExisting(context,entity,change.SchoolId,key);
-            if(loaded is null || loaded.Id!=change.Id ||
-                !ImportFieldsEqual(loaded.Fields,change.After))
-                throw new InvalidOperationException(
-                    $"صف {change.Row}: تغيّرت بيانات السجل منذ الاستيراد؛ التراجع قد يمحو تعديلا لاحقا.");
+            if(entity==ImportEntity.Sections)
+            {
+                if(!AccessPolicy.CanManageStudents(actor,change.SchoolId))
+                    throw new UnauthorizedAccessException("لا تملك صلاحية تعديل شعب هذه المدرسة.");
+                if(change.After["academic_year"]!=context.AcademicYear)
+                    throw new InvalidOperationException("تغير العام النشط؛ لا يمكن عكس شعبة من عام آخر.");
+                RequireOpenYear(con,tx,context.AcademicYear);
+                var gradeKey=GradeKey(change.SchoolId,change.After["grade"],change.After["section"]);
+                if(!context.Grades.TryGetValue(gradeKey,out var currentGradeId) ||
+                    currentGradeId!=change.Id)
+                    throw new InvalidOperationException($"صف {change.Row}: الشعبة تغيرت منذ الاستيراد.");
+                if(!context.Schools.TryGetValue(change.After["school_code"],out var school) ||
+                    school.Id!=change.SchoolId)
+                    throw new InvalidOperationException("رمز المدرسة تغير منذ استيراد الشعبة.");
+            }
+            else
+            {
+                var key=entity==ImportEntity.Schools?change.After["code"] :
+                    change.After["employee_code"];
+                var loaded=ImportExisting(context,entity,change.SchoolId,key);
+                if(loaded is null || loaded.Id!=change.Id ||
+                    !ImportFieldsEqual(loaded.Fields,change.After))
+                    throw new InvalidOperationException(
+                        $"صف {change.Row}: تغيّرت بيانات السجل منذ الاستيراد؛ التراجع قد يمحو تعديلا لاحقا.");
+            }
             using(var newer=Cmd(con,tx,"""
                 SELECT EXISTS(SELECT 1 FROM audit_events
                     WHERE entity_id=$entity AND created_utc>$since)
@@ -108,6 +126,15 @@ public sealed partial class SqliteStore
         {
             foreach(var change in changes)
             {
+                if(entity==ImportEntity.Sections)
+                {
+                    using var delete=Cmd(con,tx,"DELETE FROM school_grades WHERE id=$id AND school_id=$school AND academic_year=$year",
+                        ("$id",change.Id),("$school",change.SchoolId),
+                        ("$year",change.After["academic_year"]));
+                    if(delete.ExecuteNonQuery()!=1)
+                        throw new InvalidOperationException("الشعبة لم تعد موجودة.");
+                    continue;
+                }
                 if(change.Operation=="new")
                 {
                     if(entity==ImportEntity.Schools)
