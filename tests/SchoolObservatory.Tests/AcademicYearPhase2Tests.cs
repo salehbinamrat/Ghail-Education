@@ -111,6 +111,39 @@ public sealed class AcademicYearPhase2Tests
     }
 
     [Fact]
+    public void ClosedYearBlocksAttendanceMutationsAndKeepsEarlierRecord()
+    {
+        var (store, owner, school, _) = Setup();
+        store.AddSchoolGrade(owner, school.Id, 3, "أ");
+        store.SaveStudent(owner, new SchoolStudent("", school.Id, "004", "طالب", 3, "أ", "", "", "", "", true, "2026/2027"));
+        var student=store.GetStudents(owner, school.Id).Single();
+        store.RecordStudentAttendance(owner, school.Id, student.Id, new DateOnly(2026, 11, 17), "حاضر", "");
+        store.CloseAcademicYear(owner, "2026/2027");
+        Assert.ThrowsAny<Exception>(() =>
+            store.RecordStudentAttendance(owner, school.Id, student.Id, new DateOnly(2026, 11, 17), "غائب", ""));
+        Assert.Equal("حاضر", store.GetStudentAttendance(owner, school.Id, student.Id).Single().Status);
+    }
+
+    [Fact]
+    public void CrossSchoolTransferKeepsPreviousStudentRecordAndResults()
+    {
+        var (store, owner, school, _) = Setup();
+        store.AddSchool(owner, "S02", "مدرسة ثانية", "المدينة", "حكومية", "أساسي", "ذكور");
+        var other=store.GetSchools(owner).Single(x => x.Code=="S02");
+        store.AddSchoolGrade(owner, school.Id, 3, "أ");
+        store.AddSchoolGrade(owner, other.Id, 3, "ب");
+        store.SaveStudent(owner, new SchoolStudent("", school.Id, "005", "طالب", 3, "أ", "", "", "", "", true, "2026/2027"));
+        var student=store.GetStudents(owner, school.Id).Single();
+        store.SaveStudentResult(owner, school.Id, student.Id, "الفصل الأول", "العلوم", 90, 100, "");
+        store.TransitionStudent(owner, school.Id, student.Id, other.Id, 3, "ب", "school_transfer");
+        Assert.Empty(store.GetStudents(owner, school.Id));
+        Assert.Single(store.GetStudents(owner, other.Id));
+        Assert.Equal(90, store.GetStudentResults(owner, school.Id, student.Id).Single().Score);
+        Assert.Equal(2, store.GetStudentHistory(owner, school.Id, student.Id)
+            .Select(x=>x.SchoolId).Distinct().Count());
+    }
+
+    [Fact]
     public void ScopedSchoolAccountCannotControlAcademicYears()
     {
         var (store, owner, school, _) = Setup();
