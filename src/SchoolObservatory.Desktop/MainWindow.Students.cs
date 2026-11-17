@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Media;
 using Microsoft.Win32;
 using SchoolObservatory.Core;
@@ -120,6 +121,109 @@ public partial class MainWindow
             Info("تم تصدير كشف الصف المحدد بصيغة CSV UTF-8.");
         }), false, "secondary");
         root.Children.Add(exportRoster);
+        var printRoster = Btn("طباعة كشف الصف", (_, _) => Safe(() =>
+        {
+            if (schoolPicker.SelectedItem is not School school ||
+                gradePicker.SelectedItem is not SchoolGrade grade)
+                throw new InvalidOperationException("اختر المدرسة والصف والشعبة أولا.");
+            if (!AccessPolicy.CanManageStudents(_actor, school.Id))
+                throw new UnauthorizedAccessException("لا تملك صلاحية طباعة الكشف التفصيلي.");
+
+            // Obtain a complete, authoritative roster; a search filter must not accidentally
+            // truncate the official printable class list.
+            var students = _store.GetStudents(_actor, school.Id, grade.Id);
+            var printer = new PrintDialog();
+            if (printer.ShowDialog() != true) return;
+            var width = Math.Max(320, printer.PrintableAreaWidth);
+            var height = Math.Max(450, printer.PrintableAreaHeight);
+            var document = new FlowDocument
+            {
+                FlowDirection = FlowDirection.RightToLeft,
+                FontFamily = new FontFamily("Segoe UI"),
+                FontSize = 11,
+                PageWidth = width,
+                PageHeight = height,
+                PagePadding = new Thickness(28),
+                ColumnWidth = width - 56
+            };
+            document.Blocks.Add(new Paragraph(new Run("المرصد المدرسي — كشف طلاب المدرسة"))
+            {
+                FontSize = 18, FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(Color.FromRgb(7, 82, 126)),
+                TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 0, 0, 8)
+            });
+            document.Blocks.Add(new Paragraph(new Run(
+                $"المدرسة: {school.Name} ({school.Code})   |   {grade.DisplayName}   |   العام الدراسي: {grade.AcademicYear}"))
+            {
+                FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+            document.Blocks.Add(new Paragraph(new Run(
+                $"عدد الطلاب: {students.Count}   |   تاريخ الطباعة: {DateTime.Now.ToString("yyyy/MM/dd", CultureInfo.InvariantCulture)}"))
+            {
+                TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 0, 0, 12)
+            });
+
+            var columns = school.Gender == "مختلطة"
+                ? new[] { "م", "رقم الطالب", "اسم الطالب", "الصف", "الشعبة", "الجنس", "ولي الأمر" }
+                : new[] { "م", "رقم الطالب", "اسم الطالب", "الصف", "الشعبة", "ولي الأمر" };
+            var table = new Table { CellSpacing = 0 };
+            foreach (var label in columns)
+            {
+                var weight = label == "اسم الطالب" ? 4 :
+                    label == "ولي الأمر" ? 3 : label == "رقم الطالب" ? 2 : 1;
+                table.Columns.Add(new TableColumn
+                {
+                    Width = new GridLength(weight, GridUnitType.Star)
+                });
+            }
+            var group = new TableRowGroup();
+            table.RowGroups.Add(group);
+            void AppendRow(IReadOnlyList<string> cells, bool header)
+            {
+                var row = new TableRow();
+                if (header)
+                    row.Background = new SolidColorBrush(Color.FromRgb(224, 244, 249));
+                foreach (var value in cells)
+                {
+                    row.Cells.Add(new TableCell(new Paragraph(new Run(value))
+                    {
+                        Margin = new Thickness(0), TextAlignment = TextAlignment.Right
+                    })
+                    {
+                        Padding = new Thickness(4, 6, 4, 6),
+                        BorderBrush = new SolidColorBrush(Color.FromRgb(188, 218, 226)),
+                        BorderThickness = new Thickness(0, 0, 0, 0.7),
+                        FontWeight = header ? FontWeights.Bold : FontWeights.Normal
+                    });
+                }
+                group.Rows.Add(row);
+            }
+            AppendRow(columns, true);
+            for (var i = 0; i < students.Count; i++)
+            {
+                var student = students[i];
+                var cells = new List<string>
+                {
+                    (i + 1).ToString(CultureInfo.InvariantCulture), student.StudentCode,
+                    student.FullName, student.Grade.ToString(CultureInfo.InvariantCulture),
+                    student.Section
+                };
+                if (school.Gender == "مختلطة") cells.Add(student.Gender);
+                cells.Add(student.GuardianName);
+                AppendRow(cells, false);
+            }
+            document.Blocks.Add(table);
+            document.Blocks.Add(new Paragraph(new Run(
+                "مراجعة مسؤول المدرسة: ...........................     التوقيع والختم: ..........................."))
+            {
+                Margin = new Thickness(0, 22, 0, 0),
+                TextAlignment = TextAlignment.Right
+            });
+            printer.PrintDocument(((IDocumentPaginatorSource)document).DocumentPaginator,
+                $"كشف {school.Name} — {grade.DisplayName}");
+        }), false, "secondary");
+        root.Children.Add(printRoster);
         var editor = Stack();
         editor.Children.Add(Label("إضافة طالب إلى الصف والشعبة المختارين", 17, true));
         var studentCode = Field(width: 170);
@@ -168,6 +272,7 @@ public partial class MainWindow
                     : "لا يوجد كشف محدد. أضف صفا وشعبة أو اختر كشفا موجودا.";
                 editor.IsEnabled = false;
                 exportRoster.IsEnabled = false;
+                printRoster.IsEnabled = false;
                 return;
             }
             if (reload || cachedSchoolId != selectedSchool.Id || cachedGradeId != selectedGrade.Id)
@@ -186,6 +291,7 @@ public partial class MainWindow
             editor.IsEnabled = AccessPolicy.CanManageStudents(_actor, selectedSchool.Id) &&
                 selectedGrade is not null;
             exportRoster.IsEnabled = editor.IsEnabled;
+            printRoster.IsEnabled = editor.IsEnabled;
         }
 
         var newGrade = Choice(Enumerable.Range(1, 12).Select(x => x.ToString(CultureInfo.InvariantCulture)), 100);
