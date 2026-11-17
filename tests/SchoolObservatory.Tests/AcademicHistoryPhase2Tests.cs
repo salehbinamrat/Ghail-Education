@@ -511,4 +511,68 @@ public sealed class AcademicHistoryPhase2Tests
         Assert.Single(reopened.GetEmployeeAssignments(owner, staffId));
         Assert.Contains(reopened.GetRecentAudit(owner), e => e.Action == "student.create");
     }
+
+    [Fact]
+    public void AClosedYearCannotReceiveRetargetedOfficialResultsAttendanceOrAssessments()
+    {
+        var (db, owner, school, _, path) = Prepare();
+        var studentId = AddStudent(db, owner, school);
+        db.OpenAcademicYear(owner, "2027/2028");
+        db.ActivateAcademicYear(owner, "2027/2028");
+        db.AddSchoolGrade(owner, school.Id, 4, "أ");
+        db.PromoteStudent(owner, studentId, school.Id, 4, "أ", repeat: false);
+        db.SaveStudentResult(owner, school.Id, studentId, "الفصل الثاني", "العلوم", 87, 100, "");
+        db.RecordStudentAttendance(owner, school.Id, studentId,
+            new DateOnly(2027, 11, 17), "حاضر", "");
+        db.AddStudentAssessment(owner, school.Id, studentId, "المشاركة", "ممتاز", "");
+        db.CloseAcademicYear(owner, "2026/2027");
+        using var con = DatabaseSecurity.OpenForRegressionTest(path);
+        foreach (var table in new[] { "student_results", "student_attendance", "student_assessments" })
+        {
+            using var change = con.CreateCommand();
+            change.CommandText = "UPDATE " + table + " SET academic_year='2026/2027' WHERE academic_year='2027/2028'";
+            Assert.Throws<Microsoft.Data.Sqlite.SqliteException>(() => change.ExecuteNonQuery());
+            using var check = con.CreateCommand();
+            check.CommandText = "SELECT COUNT(*) FROM " + table + " WHERE academic_year='2027/2028'";
+            Assert.Equal(1L, Convert.ToInt64(check.ExecuteScalar()));
+        }
+        Assert.Single(db.GetStudentResults(owner, school.Id, studentId));
+    }
+
+    [Fact]
+    public void AClosedYearCannotReceiveMovedClassesCensusOrBeReopenedWithRawSql()
+    {
+        var (db, owner, school, _, path) = Prepare();
+        db.OpenAcademicYear(owner, "2027/2028");
+        db.ActivateAcademicYear(owner, "2027/2028");
+        var grade = db.AddSchoolGrade(owner, school.Id, 5, "ب");
+        db.SaveDraft(owner, school.Id,
+            new CensusData(new[] { new EnrollmentLine("5", 3, 2) }, 2, 1, 1, ""));
+        db.CloseAcademicYear(owner, "2026/2027");
+        using var con = DatabaseSecurity.OpenForRegressionTest(path);
+        using (var change = con.CreateCommand())
+        {
+            change.CommandText = "UPDATE school_grades SET academic_year='2026/2027' WHERE id=$id";
+            change.Parameters.AddWithValue("$id", grade.Id);
+            Assert.Throws<Microsoft.Data.Sqlite.SqliteException>(() => change.ExecuteNonQuery());
+        }
+        using (var change = con.CreateCommand())
+        {
+            change.CommandText = """
+                UPDATE submissions SET round_id=(
+                    SELECT id FROM census_rounds WHERE academic_year='2026/2027')
+                WHERE school_id=$s AND round_id=(
+                    SELECT id FROM census_rounds WHERE academic_year='2027/2028')
+                """;
+            change.Parameters.AddWithValue("$s", school.Id);
+            Assert.Throws<Microsoft.Data.Sqlite.SqliteException>(() => change.ExecuteNonQuery());
+        }
+        using (var change = con.CreateCommand())
+        {
+            change.CommandText = "UPDATE academic_years SET is_closed=0 WHERE year='2026/2027'";
+            Assert.Throws<Microsoft.Data.Sqlite.SqliteException>(() => change.ExecuteNonQuery());
+        }
+        Assert.True(db.GetAcademicYears(owner).Single(y => y.Year == "2026/2027").IsClosed);
+        Assert.Equal("2027/2028", db.AcademicYear);
+    }
 }
