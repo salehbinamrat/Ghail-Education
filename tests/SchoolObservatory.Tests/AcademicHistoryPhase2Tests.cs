@@ -344,6 +344,76 @@ public sealed class AcademicHistoryPhase2Tests
         Assert.Equal(1, db.GetLiveDirectoryTotals(userB).ActiveStudents);
     }
 
+
+    [Fact]
+    public void RepeatedPromotionAfterWithdrawalCannotCreateAnotherEnrollmentInSameYear()
+    {
+        var (db, owner, a, _, _) = Prepare();
+        var id = AddStudent(db, owner, a);
+        db.OpenAcademicYear(owner, "2027/2028");
+        db.ActivateAcademicYear(owner, "2027/2028");
+        db.AddSchoolGrade(owner, a.Id, 4, "أ");
+        db.PromoteStudent(owner, id, a.Id, 4, "أ", repeat: false);
+        db.WithdrawStudent(owner, id);
+        Assert.Throws<InvalidOperationException>(() =>
+            db.PromoteStudent(owner, id, a.Id, 4, "أ", repeat: false));
+        Assert.Equal(2, db.GetStudentEnrollmentHistory(owner, id).Count);
+    }
+
+    [Fact]
+    public void ReimportAlreadyPromotedStudentMustNotDuplicateOrDowngradePlacement()
+    {
+        var (db, owner, a, _, _) = Prepare();
+        var id = AddStudent(db, owner, a);
+        db.OpenAcademicYear(owner, "2027/2028");
+        db.ActivateAcademicYear(owner, "2027/2028");
+        db.AddSchoolGrade(owner, a.Id, 4, "أ");
+        db.PromoteStudent(owner, id, a.Id, 4, "أ", repeat: false);
+        db.ImportStudents(owner, a.Id,
+            new[] { new StudentImportRow("A01", "S001", "طالب أصيل", 4, "أ",
+                "", "ولي الأمر", "777000000") }, "roster.xlsx");
+        Assert.Equal(id, Assert.Single(db.GetStudents(owner, a.Id)).Id);
+        Assert.Equal(2, db.GetStudentEnrollmentHistory(owner, id).Count);
+    }
+
+    [Fact]
+    public void ChainedEmploymentSecondmentsDoNotOverlapAndKeepOneEmployee()
+    {
+        var (db, owner, a, b, _) = Prepare();
+        db.SaveSchoolStaff(owner, new SchoolStaff("", a.Id, "EMP-5", "معلم",
+            "معلم", "مدرس", "رياضيات", "بكالوريوس", "ذكور", true));
+        var id = Assert.Single(db.GetSchoolStaff(owner, a.Id)).Id;
+        db.AssignEmployee(owner, id, b.Id, "انتداب",
+            new DateOnly(2027, 1, 1), new DateOnly(2027, 3, 31));
+        db.AssignEmployee(owner, id, a.Id, "تكليف",
+            new DateOnly(2027, 4, 1), null);
+        Assert.Equal(3, db.GetEmployeeAssignments(owner, id).Count);
+        Assert.Throws<InvalidOperationException>(() =>
+            db.AssignEmployee(owner, id, b.Id, "إعارة",
+                new DateOnly(2027, 3, 15), new DateOnly(2027, 3, 20)));
+        Assert.Single(db.GetSchoolStaff(owner, a.Id));
+        Assert.Empty(db.GetSchoolStaff(owner, b.Id));
+    }
+
+    [Fact]
+    public void DestinationSchoolOperatorCannotModifyPreviousSchoolsSharedStudentIdentity()
+    {
+        var (db, owner, a, b, _) = Prepare();
+        var id = AddStudent(db, owner, a);
+        db.OpenAcademicYear(owner, "2027/2028");
+        db.ActivateAcademicYear(owner, "2027/2028");
+        db.AddSchoolGrade(owner, b.Id, 4, "أ");
+        db.TransferStudentSchool(owner, id, b.Id, 4, "أ");
+        db.CreateUser(owner, "destination-editor", "School-user-safe-654321",
+            Roles.Entry, b.Id);
+        var actor = Assert.IsType<UserAccount>(db.Authenticate(
+            "destination-editor", "School-user-safe-654321"));
+        var local = db.GetStudent(actor, b.Id, id);
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            db.SaveStudent(actor, local with { FullName = "تعديل غير مصرح" }));
+        Assert.Equal("طالب أصيل", db.GetHistoricalStudents(owner, a.Id, "2026/2027").Single().FullName);
+    }
+
     [Fact]
     public void MigrationKeepsExistingStudentStaffAndAuditWithoutChangingIds()
     {
