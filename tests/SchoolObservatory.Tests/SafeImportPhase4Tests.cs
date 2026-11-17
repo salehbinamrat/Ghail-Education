@@ -99,6 +99,59 @@ public sealed class SafeImportPhase4Tests
     }
 
     [Fact]
+    public void FormulaLikeTextAndInvalidHeaderAreRejectedBeforeCommit()
+    {
+        var (db,actor,_) = New();
+        var dangerous = Table(["code","name","zone","ownership","stage"],
+            ["NEW1","=2+3","الشرق","حكومية","أساسي"]);
+        var preview=Plan(db,actor,ImportEntity.Schools,"test.csv",dangerous);
+        var row=Assert.Single(preview.Rows);
+        Assert.Equal(ImportRowStatus.Invalid,row.Status);
+        Assert.Contains("الصف 2",row.Message);
+        Assert.Contains("name",row.Message);
+        Assert.Throws<InvalidOperationException>(()=>db.ApplyImport(actor,preview));
+        Assert.Throws<ArgumentException>(()=>ImportColumnMapping.Auto(ImportEntity.Schools,
+            ["missing","columns"]));
+    }
+
+    [Fact]
+    public void MoreThanFiveThousandRowsCannotBePreviewed()
+    {
+        var (db,actor,_) = New();
+        var rows=Enumerable.Range(0,5001)
+            .Select(i=>(IReadOnlyList<string>)new[]{i.ToString(),"اسم","منطقة","حكومية","أساسي"}).ToArray();
+        var sheet=new ImportTable("csv",["code","name","zone","ownership","stage"],rows);
+        Assert.Throws<ArgumentException>(()=>Plan(db,actor,ImportEntity.Schools,"large.csv",sheet));
+        Assert.Empty(db.GetImportBatches(actor));
+    }
+
+    [Fact]
+    public void SchoolScopedStaffImportCannotSeeOrModifyAnotherSchool()
+    {
+        var (db,owner,school)=New();
+        db.AddSchool(owner,"B01","مدرسة ثانية","منطقة","حكومية","أساسي","ذكور");
+        db.CreateUser(owner,"staffphase4","Strong-Password-123!",Roles.Entry,school.Id,
+            (long)(PermissionFlags.ViewSchools|PermissionFlags.ViewStaff|PermissionFlags.ManageStaff));
+        var actor=db.Authenticate("staffphase4","Strong-Password-123!")!;
+        var records=Table(["school_code","employee_code","full_name","category"],
+            ["B01","E009","موظف","معلم"]);
+        Assert.Throws<UnauthorizedAccessException>(()=>
+            Plan(db,actor,ImportEntity.Staff,"foreign.csv",records));
+        Assert.Empty(db.GetSchoolStaff(owner,school.Id));
+    }
+
+    [Fact]
+    public void ReinitializationIsIdempotentAndKeepsTheImportLedger()
+    {
+        var (db,actor,school)=New();
+        var sheet=Table(["code","name"],["A01","اسم محدث"]);
+        var batch=db.ApplyImport(actor,Plan(db,actor,ImportEntity.Schools,"history.csv",sheet));
+        db.Initialize();
+        Assert.Equal(batch.Id,Assert.Single(db.GetImportBatches(actor)).Id);
+        Assert.Equal(school.Id,Assert.Single(db.GetSchools(actor)).Id);
+    }
+
+    [Fact]
     public void PreviewShowsOldNewAndBlankCellsDoNotEraseExistingValues()
     {
         var (db, actor, school) = New();
