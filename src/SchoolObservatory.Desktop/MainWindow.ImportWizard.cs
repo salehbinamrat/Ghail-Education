@@ -285,6 +285,43 @@ public partial class MainWindow
             ("الحالة","Status",false));
         grid.MaxHeight=520;
         root.Children.Add(Box(grid));
+        var historyDetails=Stack();
+        historyDetails.Children.Add(Label("حدد دفعة لعرض كل صف تم تغييره والقيم القديمة والجديدة.",14));
+        root.Children.Add(Box(historyDetails));
+        grid.SelectionChanged += (_,_) => Safe(()=>
+        {
+            historyDetails.Children.Clear();
+            if(grid.SelectedItem is not ImportBatchSummary selected)return;
+            historyDetails.Children.Add(Label(
+                $"الملف: {selected.SourceName} | السنة: {selected.AcademicYear} | " +
+                $"الحالة: {selected.Status}",15,true));
+            if(selected.Warnings.Length>0)
+                historyDetails.Children.Add(Label("ملاحظة: "+selected.Warnings,14,true));
+            var changes=_store.GetImportBatchChanges(_actor,selected.Id);
+            if(changes.Count==0)
+            {
+                historyDetails.Children.Add(Label("لم تغير هذه الدفعة بيانات قائمة.",14));
+                return;
+            }
+            var changedRows=GridFor(changes,
+                ("رقم صف الملف","SourceRow",false),("معرف السجل","EntityId",false),
+                ("نوع العملية","Operation",false),("عدد الحقول","ChangeCount",false));
+            changedRows.MaxHeight=270;
+            historyDetails.Children.Add(changedRows);
+            var valuesArea=Stack();
+            valuesArea.Children.Add(Label("حدد صفا لعرض تفاصيل الحقول.",14));
+            historyDetails.Children.Add(valuesArea);
+            changedRows.SelectionChanged += (_,_) =>
+            {
+                valuesArea.Children.Clear();
+                if(changedRows.SelectedItem is not ImportBatchChangeRow change)return;
+                var fieldGrid=GridFor(change.Changes,
+                    ("الحقل","Field",false),("قبل الاستيراد","Before",false),
+                    ("بعد الاستيراد","After",false));
+                fieldGrid.MaxHeight=250;
+                valuesArea.Children.Add(fieldGrid);
+            };
+        });
         root.Children.Add(Btn("التراجع عن الدفعة المحددة بأمان",(_,_)=>Safe(()=>
         {
             if(grid.SelectedItem is not ImportBatchSummary selected)
