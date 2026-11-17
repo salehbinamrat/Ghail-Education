@@ -72,9 +72,19 @@ public sealed class DatabaseSecurityPhase1Tests
     public void EncryptedBackupRestoresCompleteRepresentativeRecords()
     {
         var (db, owner, path) = Build();
-        db.AddSchool(owner, "SCH01", "مدرسة الأمل", "العليب", "حكومية", "أساسي");
+        db.AddSchool(owner, "SCH01", "مدرسة الأمل", "العليب", "حكومية", "أساسي", "ذكور");
         var school = Assert.Single(db.GetSchools(owner));
-        db.CreateUser(owner, "schooluser", "School-Password-987", Roles.Entry, school.Id);
+        db.CreateUser(owner, "schooluser", "School-Password-987", Roles.Entry, school.Id,
+            (long)(PermissionFlags.ViewSchools | PermissionFlags.ViewStudents));
+        db.SaveSchoolStaff(owner, new SchoolStaff("", school.Id, "STAFF-01", "المعلم خالد",
+            "معلم", "معلم", "الرياضيات", "بكالوريوس", "ذكور", true));
+        db.AddSchoolGrade(owner, school.Id, 3, "أ");
+        db.SaveStudent(owner, new SchoolStudent("", school.Id, "ST-001", "الطالب محمد",
+            3, "أ", "", "ولي الأمر", "777000000", "الملف الأصلي", true, "2026/2027"));
+        var student = Assert.Single(db.GetStudents(owner, school.Id));
+        db.SaveStudentResult(owner, school.Id, student.Id, "الفصل الأول", "الرياضيات", 94, 100, "ممتاز");
+        db.AddStudentAssessment(owner, school.Id, student.Id, "المشاركة", "ممتاز", "نشط");
+        db.RecordStudentAttendance(owner, school.Id, student.Id, new DateOnly(2026, 11, 17), "حاضر", "");
         db.SaveDraft(owner, school.Id, new CensusData([new EnrollmentLine("1", 18, 17)], 3, 4, 2, "original"));
         var backup = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path)!, "backup.sobak");
         var phrase = "A strong offline recovery secret number 554433!";
@@ -84,6 +94,10 @@ public sealed class DatabaseSecurityPhase1Tests
         var preview = db.PreviewEncryptedBackup(owner, backup, phrase);
         Assert.True(preview.RowCounts["schools"] >= 1);
         Assert.True(preview.RowCounts["users"] >= 2);
+        Assert.Equal(1, preview.RowCounts["school_staff"]);
+        Assert.Equal(1, preview.RowCounts["school_students"]);
+        Assert.Equal(1, preview.RowCounts["student_results"]);
+        Assert.True(preview.RowCounts["audit_events"] > 0);
         db.RestoreEncryptedBackup(owner, backup, phrase, confirmed: true);
         var reopened = new SqliteStore(path);
         reopened.Initialize();
@@ -91,6 +105,16 @@ public sealed class DatabaseSecurityPhase1Tests
         Assert.Single(reopened.GetSchools(restoredOwner));
         Assert.NotNull(reopened.Authenticate("schooluser", "School-Password-987"));
         Assert.NotNull(reopened.GetLatestSubmission(restoredOwner, school.Id));
+        var preserved = Assert.Single(reopened.GetStudents(restoredOwner, school.Id));
+        Assert.Equal(student.Id, preserved.Id);
+        Assert.Single(reopened.GetSchoolStaff(restoredOwner, school.Id));
+        Assert.Equal(94, Assert.Single(reopened.GetStudentResults(restoredOwner, school.Id, preserved.Id)).Score);
+        Assert.Single(reopened.GetStudentAssessments(restoredOwner, school.Id, preserved.Id));
+        Assert.Single(reopened.GetStudentAttendance(restoredOwner, school.Id, preserved.Id));
+        Assert.NotEmpty(reopened.GetRecentAudit(restoredOwner));
+        var preservedSchoolAccount = reopened.Authenticate("schooluser", "School-Password-987")!;
+        Assert.Equal((long)(PermissionFlags.ViewSchools | PermissionFlags.ViewStudents),
+            preservedSchoolAccount.PermissionMask);
     }
 
     [Fact]
