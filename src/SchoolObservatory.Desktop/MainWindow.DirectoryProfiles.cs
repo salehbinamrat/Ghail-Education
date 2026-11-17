@@ -109,6 +109,21 @@ public partial class MainWindow
             }
             Info("تم حفظ بيانات المدرسة."); ShowSchoolProfile(schoolId);
         }), canEditClassification, "success"));
+        if (canEditAll)
+        {
+            basic.Children.Add(Btn(school.IsActive
+                ? "حذف المدرسة من الدليل النشط (أرشفة)"
+                : "استعادة المدرسة إلى الدليل النشط", (_, _) => Safe(() =>
+            {
+                if (school.IsActive &&
+                    MessageBox.Show("سيتم تعطيل ظهور المدرسة ضمن الإحصاء التشغيلي دون حذف طلابها أو موظفيها أو إحصاءاتها السابقة. هل تؤكد؟",
+                        "تأكيد أرشفة مدرسة", MessageBoxButton.YesNo,
+                        MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                    return;
+                _store.UpdateSchool(_actor, school with { IsActive = !school.IsActive });
+                ShowSchools();
+            }), tone: school.IsActive ? "danger" : "secondary"));
+        }
         root.Children.Add(Box(basic));
 
         var info = Stack();
