@@ -297,16 +297,19 @@ public sealed partial class SqliteStore
             throw new UnauthorizedAccessException("لا تملك صلاحية عرض صفوف المدرسة.");
         var year = AcademicYear;
         using var con = Open();
-        var school = StudentSchool(con, null, schoolId);
+        // One indexed query returns the grade and the school's display stage together.
         using var cmd = Cmd(con, null, """
-            SELECT id,school_id,academic_year,grade,section
-            FROM school_grades WHERE school_id=$s AND academic_year=$y
-            ORDER BY grade,section
+            SELECT g.id,g.school_id,g.academic_year,g.grade,g.section,
+              CASE WHEN s.is_kindergarten=1 THEN 'روضة'
+                   WHEN s.stage='أساسي وثانوي' THEN 'مجمع تربوي' ELSE s.stage END
+            FROM school_grades g JOIN schools s ON s.id=g.school_id
+            WHERE g.school_id=$s AND g.academic_year=$y AND s.is_active=1
+            ORDER BY g.grade,g.section
             """, ("$s", schoolId), ("$y", year));
         using var r = cmd.ExecuteReader();
         var result = new List<SchoolGrade>();
         while (r.Read()) result.Add(new SchoolGrade(Text(r, 0), Text(r, 1), Text(r, 2),
-            r.GetInt32(3), Text(r, 4), school.Stage));
+            r.GetInt32(3), Text(r, 4), Text(r, 5)));
         return result;
     }
 
