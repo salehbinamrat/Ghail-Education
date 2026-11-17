@@ -114,4 +114,112 @@ public sealed class DatabaseSecurityPhase1Tests
         try { Assert.ThrowsAny<Exception>(() => new SqliteStore(path)); }
         finally { File.Move(key + ".detached", key); }
     }
+    [Fact]
+    public void CorruptDatabaseRecoveryRetainsOriginalAndRestoresStudentsPermissionsAndAudit()
+    {
+        var (db, owner, path) = Build();
+        db.AddSchool(owner, "REC", "مدرسة الاستعادة", "غيل بن يمين", "حكومية", "أساسي");
+        var school = Assert.Single(db.GetSchools(owner));
+        db.CreateUser(owner, "recover01", "Restore-School-Password-45", Roles.Entry, school.Id);
+        db.SaveDraft(owner, school.Id, new CensusData([new EnrollmentLine("1", 7, 9)], 2, 2, 3, "recover"));
+        var backup = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path)!, "verified.sobak");
+        const string secret = "Recovery secret phrase longer than sixteen!";
+        db.CreateEncryptedBackup(owner, backup, secret);
+        var corrupted = RandomNumberGenerator.GetBytes(1024);
+        File.WriteAllBytes(path, corrupted);
+        OfflineDisasterRecovery.RecoverUnreadableDatabase(path, backup, secret, confirmed: true);
+        var restored = new SqliteStore(path);
+        restored.Initialize();
+        var login = Assert.IsType<UserAccount>(restored.Authenticate("phaseowner", "Good-Long-Password-123"));
+        Assert.Single(restored.GetSchools(login));
+        Assert.NotNull(restored.Authenticate("recover01", "Restore-School-Password-45"));
+        Assert.NotNull(restored.GetLatestSubmission(login, school.Id));
+        Assert.NotEmpty(restored.GetRecentAudit(login));
+        var originals = Directory.GetFiles(System.IO.Path.Combine(
+            System.IO.Path.GetDirectoryName(path)!, "recovery"), "*.unreadable-original");
+        Assert.NotEmpty(originals);
+        Assert.Contains(originals, file => File.ReadAllBytes(file).SequenceEqual(corrupted));
+    }
+
+    [Fact]
+    public void WrongRecoveryPasswordPreservesDamagedDatabaseByteForByte()
+    {
+        var (db, owner, path) = Build();
+        var backup = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path)!, "verified.sobak");
+        db.CreateEncryptedBackup(owner, backup, "Recovery secret phrase longer than sixteen!");
+        File.WriteAllBytes(path, RandomNumberGenerator.GetBytes(512));
+        var original = SHA256.HashData(File.ReadAllBytes(path));
+        Assert.ThrowsAny<Exception>(() => OfflineDisasterRecovery.RecoverUnreadableDatabase(
+            path, backup, "definitely incorrect", confirmed: true));
+        Assert.Equal(original, SHA256.HashData(File.ReadAllBytes(path)));
+        Assert.True(File.Exists(DatabaseSecurity.KeyFile(path)));
+    }
+
+    [Fact]
+    public void IndependentWindowsInstallationRestoresEncryptedBackupWithoutOriginalDpapiKey()
+    {
+        var (db, owner, _) = Build();
+        db.AddSchool(owner, "OTHER", "مدرسة", "العليب", "حكومية", "أساسي");
+        var dest = PathFor();
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(dest)!);
+        var backup = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(dest)!, "portable.sobak");
+        db.CreateEncryptedBackup(owner, backup, "Portable recovery secret 1122334455");
+        var fresh = new SqliteStore(dest);
+        fresh.Initialize();
+        Assert.False(fresh.HasUsers());
+        fresh.RestoreBeforeInitialSetup(backup, "Portable recovery secret 1122334455", confirmed: true);
+        var reopened = new SqliteStore(dest);
+        reopened.Initialize();
+        var admin = Assert.IsType<UserAccount>(reopened.Authenticate("phaseowner", "Good-Long-Password-123"));
+        Assert.Single(reopened.GetSchools(admin));
+        Assert.True(File.Exists(DatabaseSecurity.KeyFile(dest)));
+    }
+
+    [Fact]
+    public void BackupIncludesCommittedWalRecordsFromAnOpenConnection()
+    {
+        var (db, owner, path) = Build();
+        using var conn = DatabaseSecurity.OpenForRegressionTest(path);
+        using (var mode = conn.CreateCommand())
+        {
+            mode.CommandText = "PRAGMA journal_mode=WAL;";
+            mode.ExecuteNonQuery();
+        }
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "CREATE TABLE wal_probe(id INTEGER PRIMARY KEY, value TEXT);";
+            cmd.ExecuteNonQuery();
+        }
+        using (var tx = conn.BeginTransaction())
+        using (var insert = conn.CreateCommand())
+        {
+            insert.Transaction = tx;
+            insert.CommandText = "INSERT INTO wal_probe(value) VALUES('committed while connection remains open');";
+            insert.ExecuteNonQuery();
+            tx.Commit();
+        }
+        var backup = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path)!, "wal.sobak");
+        const string secret = "A durable WAL recovery passphrase 123456!";
+        db.CreateEncryptedBackup(owner, backup, secret);
+        using var restored = DatabaseSecurity.OpenEncrypted(backup, secret);
+        using var verify = restored.CreateCommand();
+        verify.CommandText = "SELECT value FROM wal_probe;";
+        Assert.Equal("committed while connection remains open", verify.ExecuteScalar());
+    }
+
+    [Fact]
+    public void TamperedEncryptedBackupIsRejectedWithoutChangingActiveDatabase()
+    {
+        var (db, owner, path) = Build();
+        var backup = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path)!, "tamper.sobak");
+        const string secret = "Passphrase to detect unauthorized tampering";
+        db.CreateEncryptedBackup(owner, backup, secret);
+        var before = SHA256.HashData(File.ReadAllBytes(path));
+        var bytes = File.ReadAllBytes(backup);
+        bytes[Math.Min(bytes.Length - 1, 160)] ^= 0xA5;
+        File.WriteAllBytes(backup, bytes);
+        Assert.ThrowsAny<Exception>(() => db.PreviewEncryptedBackup(owner, backup, secret));
+        Assert.Equal(before, SHA256.HashData(File.ReadAllBytes(path)));
+    }
+
 }
