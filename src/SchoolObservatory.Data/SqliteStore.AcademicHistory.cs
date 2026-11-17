@@ -24,6 +24,13 @@ public sealed partial class SqliteStore
             );
             CREATE UNIQUE INDEX IF NOT EXISTS ux_single_active_academic_year
                 ON academic_years(is_active) WHERE is_active=1;
+            CREATE TABLE IF NOT EXISTS student_school_codes(
+                student_id TEXT NOT NULL REFERENCES school_students(id) ON DELETE RESTRICT,
+                school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE RESTRICT,
+                student_code TEXT NOT NULL COLLATE NOCASE,
+                PRIMARY KEY(student_id,school_id),
+                UNIQUE(school_id,student_code)
+            );
             CREATE TABLE IF NOT EXISTS student_history(
                 id TEXT PRIMARY KEY,
                 student_id TEXT NOT NULL REFERENCES school_students(id) ON DELETE RESTRICT,
@@ -161,6 +168,33 @@ public sealed partial class SqliteStore
             """))
             cmd.ExecuteNonQuery();
 
+        // Persist the stage that each class belonged to when the class was first
+        // registered. School classification changes must not rewrite old transcripts.
+        using (var stageColumn = Cmd(con, null,
+            "SELECT COUNT(*) FROM pragma_table_info('school_grades') WHERE name='academic_stage'"))
+        {
+            if (Convert.ToInt32(stageColumn.ExecuteScalar(), CultureInfo.InvariantCulture) == 0)
+            {
+                using var addStage = Cmd(con, null,
+                    "ALTER TABLE school_grades ADD COLUMN academic_stage TEXT NOT NULL DEFAULT ''");
+                addStage.ExecuteNonQuery();
+            }
+        }
+        using (var fillStage = Cmd(con, null, """
+            UPDATE school_grades SET academic_stage=(
+                SELECT CASE WHEN s.is_kindergarten=1 THEN 'روضة'
+                    WHEN s.stage='أساسي وثانوي' THEN 'مجمع تربوي'
+                    ELSE s.stage END
+                FROM schools s WHERE s.id=school_grades.school_id)
+            WHERE academic_stage=''
+            """)) fillStage.ExecuteNonQuery();
+        // Original codes remain owned by their original school; transferred people
+        // can get a different local code without changing their global student ID.
+        using (var schoolCodes = Cmd(con, null, """
+            INSERT OR IGNORE INTO student_school_codes(student_id,school_id,student_code)
+            SELECT id,school_id,student_code FROM school_students
+            """)) schoolCodes.ExecuteNonQuery();
+
         // Repeatable, lossless backfill from Phase 1. Historical years with no active
         // setting are closed instead of silently being made editable again.
         using (var years = Cmd(con, null, """
@@ -296,6 +330,24 @@ public sealed partial class SqliteStore
             CREATE TRIGGER IF NOT EXISTS p2_student_created AFTER INSERT ON school_students
             BEGIN
                 SELECT 1;
+            END;
+            CREATE TRIGGER IF NOT EXISTS p2_student_school_code_created AFTER INSERT ON school_students
+            BEGIN
+                INSERT INTO student_school_codes(student_id,school_id,student_code)
+                VALUES(NEW.id,NEW.school_id,NEW.student_code);
+            END;
+            CREATE TRIGGER IF NOT EXISTS p2_student_school_code_updated AFTER UPDATE OF student_code ON school_students
+            BEGIN
+                UPDATE student_school_codes SET student_code=NEW.student_code
+                WHERE student_id=NEW.id AND school_id=NEW.school_id;
+            END;
+            CREATE TRIGGER IF NOT EXISTS p2_grade_snapshot_created AFTER INSERT ON school_grades
+            BEGIN
+                UPDATE school_grades SET academic_stage=(
+                    SELECT CASE WHEN s.is_kindergarten=1 THEN 'روضة'
+                        WHEN s.stage='أساسي وثانوي' THEN 'مجمع تربوي' ELSE s.stage END
+                    FROM schools s WHERE s.id=NEW.school_id)
+                WHERE id=NEW.id AND academic_stage='';
             END;
             CREATE TRIGGER IF NOT EXISTS p2_enrollment_created AFTER INSERT ON student_enrollments
             BEGIN
@@ -545,6 +597,32 @@ public sealed partial class SqliteStore
         var school = StudentSchool(con, tx, targetSchool);
         GradeAllowed(school, grade);
         var gradeId = GradeId(con, tx, targetSchool, year, grade, section);
+        // Local student codes belong to the receiving school, while studentId is
+        // immutable. Preserve the previous code at the originating institution.
+        using (var local = Cmd(con, tx, """
+            SELECT student_code FROM student_school_codes
+            WHERE student_id=$student AND school_id=$school
+            """, ("$student", studentId), ("$school", targetSchool)))
+        {
+            if (local.ExecuteScalar() is null)
+            {
+                using var sourceCode = Cmd(con, tx,
+                    "SELECT student_code FROM school_students WHERE id=$id", ("$id", studentId));
+                var suggestion = sourceCode.ExecuteScalar()?.ToString()
+                    ?? throw new InvalidOperationException("هوية الطالب غير موجودة.");
+                using var collision = Cmd(con, tx, """
+                    SELECT EXISTS(SELECT 1 FROM student_school_codes
+                    WHERE school_id=$school AND student_code=$code)
+                    """, ("$school", targetSchool), ("$code", suggestion));
+                if (Convert.ToInt32(collision.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
+                    suggestion = "TR-" + Id()[..16].ToUpperInvariant();
+                using var assignCode = Cmd(con, tx, """
+                    INSERT INTO student_school_codes(student_id,school_id,student_code)
+                    VALUES($student,$school,$code)
+                    """, ("$student", studentId), ("$school", targetSchool), ("$code", suggestion));
+                assignCode.ExecuteNonQuery();
+            }
+        }
         using (var existing = Cmd(con, tx, """
             SELECT EXISTS(SELECT 1 FROM student_history
                 WHERE student_id=$student AND academic_year=$year
