@@ -75,7 +75,7 @@ public partial class MainWindow : Window
             Content = new TextBlock
             {
                 Text = text, TextWrapping = TextWrapping.Wrap,
-                FontFamily = new FontFamily("Arial"), FontSize = 14,
+                FontFamily = new FontFamily("Arial"), FontSize = 15,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = Brushes.White, TextAlignment = TextAlignment.Right
             },
@@ -137,7 +137,7 @@ public partial class MainWindow : Window
         Margin = new Thickness(margin)
     };
 
-    private static TextBlock Label(string text, int size = 15, bool bold = false) => new()
+    private static TextBlock Label(string text, int size = 16, bool bold = false) => new()
     {
         Text = text, FontSize = size,
         FontWeight = bold ? FontWeights.Bold : FontWeights.Normal,
@@ -207,7 +207,16 @@ public partial class MainWindow : Window
             EnableRowVirtualization = true, EnableColumnVirtualization = true,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            ColumnWidth = new DataGridLength(1, DataGridLengthUnitType.Star)
+            ColumnWidth = new DataGridLength(1, DataGridLengthUnitType.Star),
+            HeadersVisibility = DataGridHeadersVisibility.All,
+            RowHeaderWidth = 56
+        };
+        // A virtualized row header provides sequential 1-based numbering without
+        // modifying school identifiers, employee codes or imported student codes.
+        grid.LoadingRow += (_, e) =>
+        {
+            e.Row.Header = (e.Row.GetIndex() + 1).ToString(CultureInfo.InvariantCulture);
+            e.Row.ToolTip = "رقم تسلسلي تلقائي في الكشف";
         };
         var cellText = new Style(typeof(TextBlock));
         cellText.Setters.Add(new Setter(TextBlock.TextAlignmentProperty, TextAlignment.Right));
@@ -257,13 +266,16 @@ public partial class MainWindow : Window
     private void ShowDashboard()
     {
         var data = _store.GetDashboard(_actor);
+        // Live operational figures use current school / student / staff rows.
+        // Approved census snapshots are preserved as a separate official section.
+        var live = _store.GetLiveDirectoryTotals(_actor);
         var root = Stack();
         root.Children.Add(Label($"أهلا بك في { _store.DistrictName } — نظرة عامة على البيانات المعتمدة", 17));
         var tiles = new WrapPanel { Margin = new Thickness(0, 12, 0, 14) };
         foreach (var (title, count) in new (string, int)[] {
             ("المدارس النشطة", data.Schools), ("الإحصاءات المعتمدة", data.Approved),
-            ("قيد المراجعة", data.Submitted), ("إجمالي الطلاب", data.Students),
-            ("إجمالي المعلمين", data.Teachers), ("الفصول", data.Classrooms) })
+            ("قيد المراجعة", data.Submitted), ("طلاب الإحصاء المعتمد", data.Students),
+            ("معلمو الإحصاء المعتمد", data.Teachers), ("الفصول", data.Classrooms) })
         {
             var tile = Stack();
             tile.Children.Add(new TextBlock { Text = title, FontSize = 14, Foreground = _muted });
@@ -274,6 +286,45 @@ public partial class MainWindow : Window
             tiles.Children.Add(card);
         }
         root.Children.Add(tiles);
+        root.Children.Add(Label("مؤشرات السجلات المباشرة — تتحدث عند الإضافة أو التعديل أو الأرشفة", 18, true));
+        var liveTiles = new WrapPanel { Margin = new Thickness(0, 6, 0, 12) };
+        var liveNumbers = new List<(string Title, int Count)>
+        {
+            ("المدارس النشطة", live.Schools),
+            ("أعضاء مجالس الآباء والأمهات", live.CouncilMembers)
+        };
+        if (live.StudentsVisible)
+        {
+            liveNumbers.Add(("الطلاب المسجلون حاليا", live.ActiveStudents));
+            liveNumbers.Add(("الشعب والكشوف", live.Sections));
+        }
+        if (live.StaffVisible)
+        {
+            liveNumbers.Add(("المعلمون المسجلون", live.ActiveTeachers));
+            liveNumbers.Add(("الإداريون المسجلون", live.ActiveAdministrators));
+            liveNumbers.Add(("الأخصائيون المسجلون", live.ActiveSpecialists));
+        }
+        foreach (var (title, count) in liveNumbers)
+        {
+            var tile = Stack();
+            tile.Children.Add(new TextBlock
+            {
+                Text = title, FontSize = 15, Foreground = _muted,
+                TextWrapping = TextWrapping.Wrap
+            });
+            tile.Children.Add(new TextBlock
+            {
+                Text = count.ToString("N0", CultureInfo.CurrentCulture), FontSize = 27,
+                FontWeight = FontWeights.Bold, Foreground = _primary,
+                Margin = new Thickness(0, 8, 0, 0)
+            });
+            var card = Box(tile);
+            card.Width = 235;
+            card.Margin = new Thickness(0, 0, 10, 10);
+            liveTiles.Children.Add(card);
+        }
+        root.Children.Add(liveTiles);
+        root.Children.Add(Label("الإحصاء الرسمي المعتمد (مستقل عن السجلات المباشرة)", 18, true));
         root.Children.Add(Box(Label("تُحتسب أعداد الطلاب والمعلمين والفصول من الاستمارات المعتمدة فقط. الاستمارات غير المعتمدة لا تدخل في المجموع الرسمي.", 15)));
         root.Children.Add(Box(Label("تنبيه أمني: النسخة الأولى محلية وغير مشفرة بعد؛ لا تستخدم بيانات شخصية حساسة حتى اكتمال متطلبات الإنتاج.", 14)));
         root.Children.Add(Btn("تحديث المؤشرات", (_, _) => ShowDashboard()));
