@@ -52,8 +52,8 @@ public sealed partial class SqliteStore
         using var r = cmd.ExecuteReader();
         while (r.Read())
             rows.Add(new ApprovedCensusReportRow(Text(r,0), Text(r,1), Text(r,2),
-                r.GetInt32(3),r.GetInt32(4),r.GetInt32(5),
-                r.GetInt32(6),r.GetInt32(7),Text(r,8)));
+                Count64(r,3),Count64(r,4),Count64(r,5),
+                Count64(r,6),Count64(r,7),Text(r,8)));
         return rows;
     }
 
