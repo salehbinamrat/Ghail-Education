@@ -40,8 +40,8 @@ public sealed class OfficialReportService(SqliteStore store)
             EducationalReportKind.StudentEnrollment or EducationalReportKind.GradesAndSections or
                 EducationalReportKind.StudentResults or EducationalReportKind.Attendance
                 => PermissionFlags.ViewStudents,
-            EducationalReportKind.StaffDistribution or EducationalReportKind.PersonnelAssignments
-                => PermissionFlags.ViewStaff,
+            EducationalReportKind.StaffDistribution or EducationalReportKind.PersonnelAssignments or
+                EducationalReportKind.ParentCouncils => PermissionFlags.ViewStaff,
             EducationalReportKind.DataQuality => PermissionFlags.ViewStudents | PermissionFlags.ViewStaff,
             _ => PermissionFlags.ViewSchools
         };
