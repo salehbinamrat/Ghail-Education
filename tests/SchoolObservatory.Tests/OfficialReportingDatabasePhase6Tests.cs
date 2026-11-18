@@ -128,4 +128,21 @@ public sealed class OfficialReportingDatabasePhase6Tests
         Assert.False(report.IsOfficiallyApproved);
     }
 
+    [Fact]
+    public void ActualMikroAdministrativeSecondmentAppearsUnderCanonicalStatus()
+    {
+        var (db, owner, payroll, workplace) = Setup();
+        db.SaveSchoolStaff(owner, new SchoolStaff("", payroll.Id, "SEC-06",
+            "المعلم المنتدب", "معلم", "معلم", "رياضيات", "بكالوريوس", "ذكور", true));
+        var employee = Assert.Single(db.GetSchoolStaff(owner, payroll.Id));
+        db.AssignEmployee(owner, employee.Id, workplace.Id, "انتداب",
+            DateOnly.FromDateTime(DateTime.Today), null);
+        var report = new OfficialReportService(db).Generate(owner,
+            new EducationalReportFilter(EducationalReportKind.PersonnelAssignments,
+                SchoolId: payroll.Id, AssignmentStatus: "منتدب"));
+        var row = Assert.Single(report.Rows).Values;
+        Assert.Equal(employee.EmployeeCode, row[1]);
+        Assert.Equal("منتدب", row[6]);
+    }
+
 }
