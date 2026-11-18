@@ -5,21 +5,23 @@
 Open **التقارير والتصدير** in the Windows application. Select report type,
 school, district zone, academic year and relevant student/staff filters.
 Use **تحديث ومعاينة التقرير**, **تصدير Excel XLSX**, **تصدير PDF** or
-**معاينة قبل الطباعة**. Print preview opens a temporary A4 PDF in the
-system's PDF viewer, where the operator can review pages before printing.
-The application does not silently send records to a printer or network service.
+**معاينة قبل الطباعة**. Print preview uses an embedded WPF A4 landscape
+DocumentViewer with no temporary report file; sensitive rosters remain in
+memory until the preview window is closed. The operator reviews pages
+before invoking the viewer's normal print action. The application does not
+silently send records to a printer or network service.
 
 ## Sources and trust boundaries
 
 - School directory: `schools`, accessed through `GetSchools`.
 - Student enrollment/grades/sections: authenticated rosters and historical placements.
 - Results and attendance: existing student results and year-qualified attendance APIs.
-- Staff and assignments: district staff directory, with canonical payroll school identity.
+- Staff and assignments: district staff directory, with canonical payroll school identity; actual assignment codes (انتداب / تكليف / إعارة) are normalized to the personnel report labels (منتدب / مكلف / معار). A legacy original assignment is not proof of direct duty.
 - Councils: school-scoped council records; exporting telephone numbers requires `ViewStaff`.
 - Approved census: latest *approved* snapshot **per school and academic year** from
   `submissions`, `census_rounds`, and `enrollment_rows`. A later draft
   never replaces a previously approved snapshot in this report.
-- Operational census: current revision and status; **always unapproved as a report**,
+- Operational census: latest revision and status for the requested academic year; **always unapproved as a report**,
   even if it contains a status column indicating an approved source row.
 - Inconsistencies: existing Phase 3 reconciliation against authoritative source tables.
 
