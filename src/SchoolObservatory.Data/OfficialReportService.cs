@@ -19,6 +19,7 @@ public sealed class OfficialReportService(SqliteStore store)
             [EducationalReportKind.PersonnelAssignments] = "الانتدابات والتكليفات",
             [EducationalReportKind.ParentCouncils] = "أعضاء مجالس الآباء والأمهات",
             [EducationalReportKind.ApprovedCensus] = "ملخص الإحصاء المعتمد",
+            [EducationalReportKind.CensusSubmissions] = "حالة الإحصاء التشغيلي",
             [EducationalReportKind.DataQuality] = "البيانات الناقصة والتعارضات"
         };
 
@@ -77,6 +78,20 @@ public sealed class OfficialReportService(SqliteStore store)
                         r.Students.ToString(CultureInfo.InvariantCulture),
                         r.Teachers.ToString(CultureInfo.InvariantCulture),
                         r.Classrooms.ToString(CultureInfo.InvariantCulture), "معتمد");
+                break;
+
+            case EducationalReportKind.CensusSubmissions:
+                columns = ["المدرسة", "العام", "المراجعة", "الحالة", "الذكور", "الإناث", "الطلاب", "المعلمون", "الفصول"];
+                var visible = schools.Select(s => s.Id).ToHashSet(StringComparer.Ordinal);
+                foreach (var item in store.GetLatestSubmissions(actor)
+                    .Where(x => visible.Contains(x.SchoolId) && x.Year == year &&
+                        (filter.CensusStatus is null || x.Status == filter.CensusStatus)))
+                    Add(item.SchoolName, item.Year, item.Revision.ToString(CultureInfo.InvariantCulture),
+                        item.Status, item.Data.Boys.ToString(CultureInfo.InvariantCulture),
+                        item.Data.Girls.ToString(CultureInfo.InvariantCulture),
+                        item.Data.Students.ToString(CultureInfo.InvariantCulture),
+                        item.Data.Teachers.ToString(CultureInfo.InvariantCulture),
+                        item.Data.Classrooms.ToString(CultureInfo.InvariantCulture));
                 break;
 
             case EducationalReportKind.StaffDistribution:
@@ -160,9 +175,11 @@ public sealed class OfficialReportService(SqliteStore store)
                 break;
         }
 
-        if (filter.CensusStatus is not null && filter.Kind != EducationalReportKind.ApprovedCensus)
+        if (filter.CensusStatus is not null && filter.Kind != EducationalReportKind.ApprovedCensus &&
+            filter.Kind != EducationalReportKind.CensusSubmissions)
             throw new ArgumentException("مرشح الاعتماد متاح لتقرير الإحصاء المعتمد فقط.");
-        if (filter.CensusStatus is not null && filter.CensusStatus != Statuses.Approved)
+        if (filter.Kind == EducationalReportKind.ApprovedCensus &&
+            filter.CensusStatus is not null && filter.CensusStatus != Statuses.Approved)
             rows.Clear();
 
         var applied = new Dictionary<string,string>();
