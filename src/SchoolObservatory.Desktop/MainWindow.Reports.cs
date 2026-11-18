@@ -33,6 +33,7 @@ public partial class MainWindow
             new("الانتدابات والتكليفات", EducationalReportKind.PersonnelAssignments),
             new("مجالس الآباء والأمهات", EducationalReportKind.ParentCouncils),
             new("الإحصاء المعتمد", EducationalReportKind.ApprovedCensus),
+            new("حالة الإحصاء التشغيلي", EducationalReportKind.CensusSubmissions),
             new("تعارضات ونواقص البيانات", EducationalReportKind.DataQuality)
         };
         ComboBox Select(IEnumerable<string> values, double width = 175)
@@ -68,7 +69,8 @@ public partial class MainWindow
         var staffCategory = Select(["معلم", "إداري", "أخصائي"], 150);
         var employment = Select(["رسمي", "متعاقد", "غير محدد"], 150);
         var assignment = Select(["مباشر", "منتدب", "مكلف", "معار", "غير محدد"], 155);
-        var census = Select(["approved"], 130);
+        var census = Select([Statuses.Draft, Statuses.Submitted, Statuses.SchoolApproved,
+            Statuses.Approved, Statuses.Returned], 150);
 
         string? Pick(ComboBox combo) => combo.SelectedItem is string s && s != "الكل" ? s : null;
         var panel = new WrapPanel { FlowDirection = FlowDirection.RightToLeft };
@@ -103,7 +105,7 @@ public partial class MainWindow
                 int.TryParse(selectedGrade, out var g) ? g : null,
                 string.IsNullOrWhiteSpace(section.Text) ? null : section.Text.Trim(),
                 Pick(gender), Pick(staffCategory), Pick(employment), Pick(assignment),
-                (EducationalReportKind)kind.SelectedValue == EducationalReportKind.ApprovedCensus
+                (EducationalReportKind)kind.SelectedValue is EducationalReportKind.ApprovedCensus or EducationalReportKind.CensusSubmissions
                     ? Pick(census) : null);
         }
         void Refresh()
