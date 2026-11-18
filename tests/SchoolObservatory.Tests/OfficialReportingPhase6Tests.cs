@@ -54,4 +54,17 @@ public sealed class OfficialReportingPhase6Tests
             new Dictionary<string,string>(), DateTimeOffset.UtcNow);
         Assert.Equal(2, d.RecordTotal);
     }
+    [Fact]
+    public void UnsupportedFilterDimensionsMustNeverBeSilentlyIgnored()
+    {
+        Assert.Throws<ArgumentException>(() => ReportFilterRules.Validate(
+            new EducationalReportFilter(EducationalReportKind.ApprovedCensus, Grade: 3)));
+        Assert.Throws<ArgumentException>(() => ReportFilterRules.Validate(
+            new EducationalReportFilter(EducationalReportKind.StaffDistribution, Gender: "ذكور")));
+        Assert.Throws<ArgumentException>(() => ReportFilterRules.Validate(
+            new EducationalReportFilter(EducationalReportKind.StudentEnrollment, StaffCategory: "معلم")));
+        ReportFilterRules.Validate(new EducationalReportFilter(
+            EducationalReportKind.Attendance, Grade: 3, Section: "أ", Gender: "ذكور"));
+    }
+
 }
