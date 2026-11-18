@@ -69,16 +69,14 @@ public sealed class OfficialReportService(SqliteStore store)
 
             case EducationalReportKind.ApprovedCensus:
                 columns = ["المدرسة", "العام", "الذكور", "الإناث", "إجمالي الطلاب", "المعلمون", "الفصول", "الاعتماد"];
-                // A latest draft must never be treated as an approved snapshot.
-                // Historical approvals should use the Phase 3 reconciliation source.
                 var ids = schools.Select(s => s.Id).ToHashSet(StringComparer.Ordinal);
-                foreach (var r in store.GetLatestSubmissions(actor)
-                    .Where(x => ids.Contains(x.SchoolId) && x.Year == year && x.Status == Statuses.Approved))
-                    Add(r.SchoolName, r.Year, r.Data.Boys.ToString(CultureInfo.InvariantCulture),
-                        r.Data.Girls.ToString(CultureInfo.InvariantCulture),
-                        r.Data.Students.ToString(CultureInfo.InvariantCulture),
-                        r.Data.Teachers.ToString(CultureInfo.InvariantCulture),
-                        r.Data.Classrooms.ToString(CultureInfo.InvariantCulture), "معتمد");
+                foreach (var r in store.GetApprovedCensusReport(actor, year)
+                    .Where(x => ids.Contains(x.SchoolId)))
+                    Add(r.SchoolName, r.AcademicYear, r.Boys.ToString(CultureInfo.InvariantCulture),
+                        r.Girls.ToString(CultureInfo.InvariantCulture),
+                        r.Students.ToString(CultureInfo.InvariantCulture),
+                        r.Teachers.ToString(CultureInfo.InvariantCulture),
+                        r.Classrooms.ToString(CultureInfo.InvariantCulture), "معتمد");
                 break;
 
             case EducationalReportKind.StaffDistribution:
@@ -154,8 +152,7 @@ public sealed class OfficialReportService(SqliteStore store)
                         }
                         else if (filter.Kind == EducationalReportKind.Attendance)
                         {
-                            foreach (var a in store.GetStudentAttendance(actor, s.Id, st.Id)
-                                .Where(a => a.Date.StartsWith(year[..Math.Min(4, year.Length)], StringComparison.Ordinal)))
+                            foreach (var a in store.GetAttendanceForReport(actor, s.Id, year, st.Id))
                                 Add(s.Name, st.FullName, grade, st.Section, a.Date, a.Status, a.Notes);
                         }
                     }
