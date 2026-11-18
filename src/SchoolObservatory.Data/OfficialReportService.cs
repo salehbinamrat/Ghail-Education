@@ -23,6 +23,15 @@ public sealed class OfficialReportService(SqliteStore store)
             [EducationalReportKind.DataQuality] = "البيانات الناقصة والتعارضات"
         };
 
+    private static string CanonicalAssignment(string status) => status switch
+    {
+        "انتداب" => "منتدب",
+        "تكليف" => "مكلف",
+        "إعارة" => "معار",
+        "أصلي" => "مباشر",
+        _ => status
+    };
+
     public EducationalReport Generate(UserAccount actor, EducationalReportFilter filter)
     {
         if (!AccessPolicy.Has(actor, PermissionFlags.ViewReports) ||
@@ -64,7 +73,7 @@ public sealed class OfficialReportService(SqliteStore store)
         bool MatchStaff(DistrictStaffDirectoryRow st) =>
             (filter.StaffCategory is null || st.Category == filter.StaffCategory) &&
             (filter.EmploymentStatus is null || st.EmploymentType == filter.EmploymentStatus) &&
-            (filter.AssignmentStatus is null || st.AssignmentStatus == filter.AssignmentStatus);
+            (filter.AssignmentStatus is null || CanonicalAssignment(st.AssignmentStatus) == filter.AssignmentStatus);
 
         switch (filter.Kind)
         {
@@ -106,10 +115,11 @@ public sealed class OfficialReportService(SqliteStore store)
                 foreach (var st in store.GetDistrictStaffDirectory(actor)
                     .Where(s => allowed.Contains(s.SchoolId) && MatchStaff(s)))
                 {
+                    var effectiveStatus = CanonicalAssignment(st.AssignmentStatus);
                     if (filter.Kind == EducationalReportKind.PersonnelAssignments &&
-                        st.AssignmentStatus is not ("منتدب" or "مكلف" or "معار")) continue;
+                        effectiveStatus is not ("منتدب" or "مكلف" or "معار")) continue;
                     Add(st.SchoolName, st.EmployeeCode, st.FullName, st.Category, st.JobTitle,
-                        st.EmploymentType, st.AssignmentStatus, st.EffectiveWorkplace);
+                        st.EmploymentType, effectiveStatus, st.EffectiveWorkplace);
                 }
                 break;
 
