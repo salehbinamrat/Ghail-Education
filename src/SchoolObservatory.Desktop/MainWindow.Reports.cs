@@ -22,18 +22,18 @@ public partial class MainWindow
             "النماذج الحالية قابلة للتهيئة وليست نماذج حكومية معتمدة. لن يحمل التقرير صفة الاعتماد إلا للإحصاء النهائي المعتمد.",
             13));
         var schools = _store.GetSchools(_actor);
-        var kinds = new[]
+        var kinds = new KeyValuePair<string, EducationalReportKind>[]
         {
-            ("دليل المدارس", EducationalReportKind.SchoolDirectory),
-            ("قيد الطلاب", EducationalReportKind.StudentEnrollment),
-            ("الصفوف والشعب", EducationalReportKind.GradesAndSections),
-            ("نتائج الطلاب", EducationalReportKind.StudentResults),
-            ("الحضور والغياب", EducationalReportKind.Attendance),
-            ("توزيع الكادر", EducationalReportKind.StaffDistribution),
-            ("الانتدابات والتكليفات", EducationalReportKind.PersonnelAssignments),
-            ("مجالس الآباء والأمهات", EducationalReportKind.ParentCouncils),
-            ("الإحصاء المعتمد", EducationalReportKind.ApprovedCensus),
-            ("تعارضات ونواقص البيانات", EducationalReportKind.DataQuality)
+            new("دليل المدارس", EducationalReportKind.SchoolDirectory),
+            new("قيد الطلاب", EducationalReportKind.StudentEnrollment),
+            new("الصفوف والشعب", EducationalReportKind.GradesAndSections),
+            new("نتائج الطلاب", EducationalReportKind.StudentResults),
+            new("الحضور والغياب", EducationalReportKind.Attendance),
+            new("توزيع الكادر", EducationalReportKind.StaffDistribution),
+            new("الانتدابات والتكليفات", EducationalReportKind.PersonnelAssignments),
+            new("مجالس الآباء والأمهات", EducationalReportKind.ParentCouncils),
+            new("الإحصاء المعتمد", EducationalReportKind.ApprovedCensus),
+            new("تعارضات ونواقص البيانات", EducationalReportKind.DataQuality)
         };
         ComboBox Select(IEnumerable<string> values, double width = 175)
         {
@@ -50,7 +50,7 @@ public partial class MainWindow
             return combo;
         }
         var kind = new ComboBox { Width = 230, MinHeight = 38, Margin = new Thickness(5),
-            DisplayMemberPath = "Item1", SelectedValuePath = "Item2",
+            DisplayMemberPath = "Key", SelectedValuePath = "Value",
             ItemsSource = kinds, SelectedIndex = 0 };
         var school = new ComboBox { Width = 230, MinHeight = 38, Margin = new Thickness(5),
             DisplayMemberPath = "Name", SelectedValuePath = "Id" };
