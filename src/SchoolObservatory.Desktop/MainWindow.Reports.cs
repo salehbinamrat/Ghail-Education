@@ -65,8 +65,8 @@ public partial class MainWindow
             Margin = new Thickness(5), ToolTip = "اترك الشعبة فارغة لعرض الكل" };
         var gender = Select(["ذكور", "إناث"], 130);
         var staffCategory = Select(["معلم", "إداري", "أخصائي"], 150);
-        var employment = Select(["رسمي", "متعاقد", "غير محدد"], 150);
-        var assignment = Select(["مباشر", "منتدب", "مكلف", "معار", "غير محدد"], 155);
+        var employment = Select(["موظف", "متعاقد", "غير محدد"], 150);
+        var assignment = Select(["مباشر", "منتدب", "مكلف", "معار", "نقل", "إجازة", "غير محدد"], 155);
         var census = Select([Statuses.Draft, Statuses.Submitted, Statuses.SchoolApproved,
             Statuses.Approved, Statuses.Returned], 150);
 
