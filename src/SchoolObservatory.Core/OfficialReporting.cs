@@ -6,7 +6,7 @@ public enum EducationalReportKind
 {
     SchoolDirectory, StudentEnrollment, GradesAndSections, StudentResults,
     Attendance, StaffDistribution, PersonnelAssignments, ParentCouncils,
-    ApprovedCensus, DataQuality
+    ApprovedCensus, CensusSubmissions, DataQuality
 }
 
 public sealed record EducationalReportFilter(
