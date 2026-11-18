@@ -52,7 +52,15 @@ public static class ReportFileExporter
         sheet.Range(header, 1, header + Math.Max(1, report.Rows.Count), n)
             .Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
         sheet.SheetView.FreezeRows(header);
-        sheet.Columns(1, n).AdjustToContents(12, 48);
+        sheet.Columns(1, n).AdjustToContents(1, Math.Max(header, header + report.Rows.Count));
+        foreach (var column in sheet.Columns(1, n))
+        {
+            if (column.Width > 48) column.Width = 48;
+            if (column.Width < 13) column.Width = 13;
+        }
+        sheet.Range(1, 1, header + Math.Max(1, report.Rows.Count), n)
+            .Style.Alignment.WrapText = true;
+        sheet.PageSetup.PagesWide = 1;
         sheet.Style.Font.FontName = "Arial";
         sheet.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
         sheet.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
