@@ -75,6 +75,9 @@ public static class ReportFileExporter
         // The Community license is permitted only when the organization meets its terms.
         // Configure the license explicitly before production use if necessary.
         QuestPDF.Settings.License = LicenseType.Community;
+        // QuestPDF 2026.9+ excludes Windows system fonts by default. This
+        // Windows-only application needs the installed Arial Arabic glyphs.
+        QuestPDF.Settings.UseSystemFonts = true;
         Document.Create(container =>
         {
             container.Page(page =>
