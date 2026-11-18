@@ -20,7 +20,7 @@ public sealed class OfficialReportingPhase6Tests
     {
         Assert.Throws<ArgumentException>(() => new EducationalReport(
             "كشف", "مدرسة", "2026", false, ["أ", "ب"],
-            [new ReportRecord(["واحد"])], new Dictionary<string,string>(), DateTimeOffset.UtcNow));
+            [new ReportRecord(["واحد"])], new Dictionary<string,string>(), DateTimeOffset.UtcNow).Validate());
     }
 
     [Theory]
