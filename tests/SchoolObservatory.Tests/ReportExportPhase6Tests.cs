@@ -28,7 +28,11 @@ public sealed class ReportExportPhase6Tests
             Assert.True(sheet.RightToLeft);
             Assert.Equal("كشف الطلاب", sheet.Cell(1, 1).GetString());
             Assert.Equal("أحمد بن سالم", sheet.Cell(8, 1).GetString());
-            Assert.StartsWith("'", sheet.Cell(8, 2).GetString());
+            // ClosedXML represents Excel's leading apostrophe through quotePrefix,
+            // rather than retaining that apostrophe in the cell's visible string.
+            Assert.Equal("=HYPERLINK(\"https://example.test\")", sheet.Cell(8, 2).GetString());
+            Assert.True(sheet.Cell(8, 2).Style.IncludeQuotePrefix);
+            Assert.Equal(XLDataType.Text, sheet.Cell(8, 2).DataType);
             Assert.True(string.IsNullOrEmpty(sheet.Cell(8, 2).FormulaA1));
             Assert.Equal("فاطمة محمد", sheet.Cell(9, 1).GetString());
         }
