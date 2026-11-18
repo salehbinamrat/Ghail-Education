@@ -1199,38 +1199,7 @@ public partial class MainWindow : Window
         return "\"" + s.Replace("\"", "\"\"").Replace("\r", " ").Replace("\n", " ") + "\"";
     }
 
-    private void ShowReports()
-    {
-        if (!AccessPolicy.Has(_actor, PermissionFlags.ViewReports)) throw new UnauthorizedAccessException();
-        var root = Stack();
-        var approved = _store.GetLatestSubmissions(_actor).Where(x => x.Status == Statuses.Approved).ToList();
-        root.Children.Add(Label($"الاستمارات المعتمدة: {approved.Count} — العام { _store.AcademicYear }", 16, true));
-        var grid = GridFor(approved,
-            ("المدرسة", "SchoolName", false), ("ذكور", "Data.Boys", false),
-            ("إناث", "Data.Girls", false), ("طلاب", "Data.Students", false),
-            ("المعلمون", "Data.Teachers", false), ("الفصول", "Data.Classrooms", false));
-        root.Children.Add(Box(TableSurface(grid, "لا توجد سجلات مطابقة في الجدول الحالي.")));
-        root.Children.Add(Btn("تصدير التقرير إلى CSV متوافق مع إكسل", (_, _) => Safe(() =>
-        {
-            var dialog = new SaveFileDialog { Filter = "CSV (*.csv)|*.csv", FileName = "SchoolObservatory-Approved.csv" };
-            if (dialog.ShowDialog() != true) return;
-            var rows = new List<string>
-            {
-                string.Join(",", new[] { "المدرسة", "السنة", "الذكور", "الإناث", "إجمالي الطلاب", "المعلمون", "الفصول" }.Select(CsvCell))
-            };
-            foreach (var census in approved)
-                rows.Add(string.Join(",", new[] { census.SchoolName, census.Year,
-                    census.Data.Boys.ToString(CultureInfo.InvariantCulture),
-                    census.Data.Girls.ToString(CultureInfo.InvariantCulture),
-                    census.Data.Students.ToString(CultureInfo.InvariantCulture),
-                    census.Data.Teachers.ToString(CultureInfo.InvariantCulture),
-                    census.Data.Classrooms.ToString(CultureInfo.InvariantCulture) }.Select(CsvCell)));
-            File.WriteAllLines(dialog.FileName, rows, new UTF8Encoding(true));
-            Info("تم حفظ الملف. افتحه في Excel أو أي برنامج جداول يدعم CSV UTF-8.");
-        })));
-        root.Children.Add(Label("ملفات PDF والقوالب الإحصائية الرسمية ستضاف بعد اعتماد نماذج الإدارة.", 13));
-        Display("التقارير والتصدير", root);
-    }
+    private void ShowReports() => ShowReportingModule();
 
     private sealed record RoleOption(string Code, string Label);
     private sealed record AccountTableRow(UserAccount Account, string RoleDisplayName, string SchoolDisplayName)
