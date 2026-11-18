@@ -98,4 +98,34 @@ public sealed class OfficialReportingDatabasePhase6Tests
         Assert.Equal(0, report.RecordTotal);
         Assert.False(report.IsOfficiallyApproved);
     }
+    [Fact]
+    public void EmptyClassSectionIsRepresentedWithZeroEnrolledStudents()
+    {
+        var (db, owner, school, _) = Setup();
+        db.AddSchoolGrade(owner, school.Id, 3, "ج");
+        var report = new OfficialReportService(db).Generate(owner,
+            new EducationalReportFilter(EducationalReportKind.GradesAndSections,
+                SchoolId: school.Id, Grade: 3, Section: "ج"));
+        var row = Assert.Single(report.Rows).Values;
+        Assert.Equal("ج", row[2]);
+        Assert.Equal("0", row[4]);
+    }
+
+    [Fact]
+    public void OperationalCensusStatusForPriorAcademicYearIsStillReportable()
+    {
+        var (db, owner, school, _) = Setup();
+        db.SaveDraft(owner, school.Id,
+            new CensusData([new EnrollmentLine("1", 2, 3)], 1, 1, 1, ""));
+        db.OpenAcademicYear(owner, "2027/2028");
+        db.ActivateAcademicYear(owner, "2027/2028");
+        var report = new OfficialReportService(db).Generate(owner,
+            new EducationalReportFilter(EducationalReportKind.CensusSubmissions,
+                SchoolId: school.Id, AcademicYear: "2026/2027", CensusStatus: Statuses.Draft));
+        var row = Assert.Single(report.Rows).Values;
+        Assert.Equal(Statuses.Draft, row[3]);
+        Assert.Equal("5", row[6]);
+        Assert.False(report.IsOfficiallyApproved);
+    }
+
 }
