@@ -65,3 +65,34 @@ public static class ReportTextSafety
         return text;
     }
 }
+
+
+public static class ReportFilterRules
+{
+    public static bool StudentDimensions(EducationalReportKind kind) =>
+        kind is EducationalReportKind.StudentEnrollment or
+            EducationalReportKind.GradesAndSections or EducationalReportKind.StudentResults or
+            EducationalReportKind.Attendance;
+
+    public static bool StaffDimensions(EducationalReportKind kind) =>
+        kind is EducationalReportKind.StaffDistribution or EducationalReportKind.PersonnelAssignments;
+
+    public static bool CensusStatus(EducationalReportKind kind) =>
+        kind is EducationalReportKind.ApprovedCensus or EducationalReportKind.CensusSubmissions;
+
+    public static void Validate(EducationalReportFilter filter)
+    {
+        if (!Enum.IsDefined(filter.Kind)) throw new ArgumentException("نوع التقرير غير معتمد.");
+        if (!StudentDimensions(filter.Kind) &&
+            (filter.Grade is not null || filter.Section is not null || filter.Gender is not null))
+            throw new ArgumentException("مرشحات الطلاب غير متاحة لهذا التقرير.");
+        if (!StaffDimensions(filter.Kind) &&
+            (filter.StaffCategory is not null || filter.EmploymentStatus is not null ||
+             filter.AssignmentStatus is not null))
+            throw new ArgumentException("مرشحات الكادر غير متاحة لهذا التقرير.");
+        if (!CensusStatus(filter.Kind) && filter.CensusStatus is not null)
+            throw new ArgumentException("مرشح اعتماد الإحصاء غير متاح لهذا التقرير.");
+        if (filter.Grade is int grade && grade is < 1 or > 12)
+            throw new ArgumentException("رقم الصف غير صحيح.");
+    }
+}
