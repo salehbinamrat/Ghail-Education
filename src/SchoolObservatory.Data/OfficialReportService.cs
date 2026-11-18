@@ -28,7 +28,7 @@ public sealed class OfficialReportService(SqliteStore store)
         "انتداب" => "منتدب",
         "تكليف" => "مكلف",
         "إعارة" => "معار",
-        "أصلي" => "مباشر",
+        "أصلي" => "غير محدد",
         _ => status
     };
 
