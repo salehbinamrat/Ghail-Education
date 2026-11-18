@@ -1,6 +1,4 @@
-using System.Diagnostics;
 using System.Globalization;
-using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -137,12 +135,8 @@ public partial class MainWindow
             var report = new OfficialReportService(_store).Generate(_actor, CurrentFilter());
             if (preview)
             {
-                var directory = Path.Combine(Path.GetTempPath(), "Ghail-Education-ReportPreviews");
-                Directory.CreateDirectory(directory);
-                var file = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".pdf");
-                ReportFileExporter.SavePdf(report, file);
-                Process.Start(new ProcessStartInfo(file) { UseShellExecute = true });
-                Info("تم فتح معاينة PDF. يمكنك الطباعة من عارض PDF بعد مراجعة الصفحات.");
+                var window = new ReportPrintPreviewWindow(report) { Owner = this };
+                window.ShowDialog();
                 return;
             }
             var dialog = new SaveFileDialog
