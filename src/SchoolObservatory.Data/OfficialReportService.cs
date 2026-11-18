@@ -28,7 +28,13 @@ public sealed class OfficialReportService(SqliteStore store)
         if (!AccessPolicy.Has(actor, PermissionFlags.ViewReports) ||
             !AccessPolicy.Has(actor, PermissionFlags.ViewSchools))
             throw new UnauthorizedAccessException("لا تملك صلاحية التقارير.");
+        ReportFilterRules.Validate(filter);
         var year = filter.AcademicYear ?? store.AcademicYear;
+        if ((ReportFilterRules.StaffDimensions(filter.Kind) ||
+             filter.Kind == EducationalReportKind.ParentCouncils) &&
+             year != store.AcademicYear)
+            throw new InvalidOperationException(
+                "السجلات الوظيفية والمجالس الحالية ليست أرشيفا تاريخيا؛ حدد العام الدراسي النشط.");
         var schools = store.GetSchools(actor)
             .Where(s => filter.SchoolId is null || s.Id == filter.SchoolId)
             .Where(s => filter.Zone is null || s.Zone == filter.Zone)
