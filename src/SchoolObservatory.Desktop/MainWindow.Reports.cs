@@ -86,31 +86,54 @@ public partial class MainWindow
         AddFilter("فئة الكادر", staffCategory); AddFilter("التوظيف", employment);
         AddFilter("التكليف", assignment); AddFilter("اعتماد الإحصاء", census);
         root.Children.Add(Box(panel));
+        void ApplyFilterAvailability()
+        {
+            var selected = kind.SelectedValue is EducationalReportKind value
+                ? value : EducationalReportKind.SchoolDirectory;
+            var student = ReportFilterRules.StudentDimensions(selected);
+            var staff = ReportFilterRules.StaffDimensions(selected);
+            grade.IsEnabled = student;
+            section.IsEnabled = student;
+            gender.IsEnabled = student;
+            staffCategory.IsEnabled = staff;
+            employment.IsEnabled = staff;
+            assignment.IsEnabled = staff;
+            census.IsEnabled = ReportFilterRules.CensusStatus(selected);
+            // Current staff and councils are not historical snapshots.
+            var historicalUnavailable = staff || selected == EducationalReportKind.ParentCouncils;
+            year.IsEnabled = !historicalUnavailable;
+            if (historicalUnavailable) year.SelectedItem = _store.AcademicYear;
+        }
+        kind.SelectionChanged += (_, _) => ApplyFilterAvailability();
+        ApplyFilterAvailability();
 
         var summary = Label("", 15, true);
         var tableHost = new ContentControl();
         root.Children.Add(summary);
         root.Children.Add(tableHost);
-        EducationalReport? shown = null;
         EducationalReportFilter CurrentFilter()
         {
             var selectedSchool = school.SelectedItem as School;
-            var selectedGrade = Pick(grade);
+            var selectedKind = (EducationalReportKind)kind.SelectedValue;
+            var student = ReportFilterRules.StudentDimensions(selectedKind);
+            var staff = ReportFilterRules.StaffDimensions(selectedKind);
+            var selectedGrade = student ? Pick(grade) : null;
             return new EducationalReportFilter(
-                (EducationalReportKind)kind.SelectedValue,
+                selectedKind,
                 string.IsNullOrEmpty(selectedSchool?.Id) ? null : selectedSchool.Id,
                 Pick(zone), Pick(year), Pick(stage),
-                int.TryParse(selectedGrade, out var g) ? g : null,
-                string.IsNullOrWhiteSpace(section.Text) ? null : section.Text.Trim(),
-                Pick(gender), Pick(staffCategory), Pick(employment), Pick(assignment),
-                (EducationalReportKind)kind.SelectedValue is EducationalReportKind.ApprovedCensus or EducationalReportKind.CensusSubmissions
-                    ? Pick(census) : null);
+                student && int.TryParse(selectedGrade, out var g) ? g : null,
+                student && !string.IsNullOrWhiteSpace(section.Text) ? section.Text.Trim() : null,
+                student ? Pick(gender) : null,
+                staff ? Pick(staffCategory) : null,
+                staff ? Pick(employment) : null,
+                staff ? Pick(assignment) : null,
+                ReportFilterRules.CensusStatus(selectedKind) ? Pick(census) : null);
         }
         void Refresh()
         {
             // Fresh authenticated reads on every preview/export. Never reuse stale privilege scopes.
             var report = new OfficialReportService(_store).Generate(_actor, CurrentFilter());
-            shown = report;
             summary.Text = $"{report.Title} | {report.ApprovalLabel} | إجمالي السجلات: {report.RecordTotal}";
             var grid = new DataGrid
             {
