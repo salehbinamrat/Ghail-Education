@@ -83,15 +83,14 @@ public sealed class OfficialReportService(SqliteStore store)
             case EducationalReportKind.CensusSubmissions:
                 columns = ["المدرسة", "العام", "المراجعة", "الحالة", "الذكور", "الإناث", "الطلاب", "المعلمون", "الفصول"];
                 var visible = schools.Select(s => s.Id).ToHashSet(StringComparer.Ordinal);
-                foreach (var item in store.GetLatestSubmissions(actor)
-                    .Where(x => visible.Contains(x.SchoolId) && x.Year == year &&
-                        (filter.CensusStatus is null || x.Status == filter.CensusStatus)))
-                    Add(item.SchoolName, item.Year, item.Revision.ToString(CultureInfo.InvariantCulture),
-                        item.Status, item.Data.Boys.ToString(CultureInfo.InvariantCulture),
-                        item.Data.Girls.ToString(CultureInfo.InvariantCulture),
-                        item.Data.Students.ToString(CultureInfo.InvariantCulture),
-                        item.Data.Teachers.ToString(CultureInfo.InvariantCulture),
-                        item.Data.Classrooms.ToString(CultureInfo.InvariantCulture));
+                foreach (var item in store.GetCensusStatusesForReport(actor, year, filter.CensusStatus)
+                    .Where(x => visible.Contains(x.SchoolId)))
+                    Add(item.SchoolName, item.AcademicYear, item.Revision.ToString(CultureInfo.InvariantCulture),
+                        item.Status, item.Boys.ToString(CultureInfo.InvariantCulture),
+                        item.Girls.ToString(CultureInfo.InvariantCulture),
+                        item.Students.ToString(CultureInfo.InvariantCulture),
+                        item.Teachers.ToString(CultureInfo.InvariantCulture),
+                        item.Classrooms.ToString(CultureInfo.InvariantCulture));
                 break;
 
             case EducationalReportKind.StaffDistribution:
@@ -147,11 +146,10 @@ public sealed class OfficialReportService(SqliteStore store)
                         .Where(MatchStudent).ToArray();
                     if (filter.Kind == EducationalReportKind.GradesAndSections)
                     {
-                        foreach (var grp in students.GroupBy(st => new { st.Grade, st.Section })
-                            .OrderBy(g => g.Key.Grade).ThenBy(g => g.Key.Section))
-                            Add(s.Name, grp.Key.Grade.ToString(CultureInfo.InvariantCulture),
-                                grp.Key.Section, year, grp.Select(x => x.Id).Distinct().Count()
-                                    .ToString(CultureInfo.InvariantCulture));
+                        foreach (var grp in store.GetSectionCountsForReport(actor, s.Id, year,
+                            filter.Grade, filter.Section, filter.Gender))
+                            Add(s.Name, grp.Grade.ToString(CultureInfo.InvariantCulture),
+                                grp.Section, year, grp.Students.ToString(CultureInfo.InvariantCulture));
                     }
                     else foreach (var st in students)
                     {
