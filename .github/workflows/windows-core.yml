@@ -10,11 +10,10 @@ on:
 permissions:
   contents: read
 
-# Queue each Core and Release independently for the same source commit.
-# A stalled obsolete commit may not block tests for the newest SHA.
-# Pull-request and branch pushes for the SAME SHA share a group to avoid duplication.
+# Keep Core and Release independent so both run concurrently, but cancel
+# superseded commits and duplicate push/PR runs from the same feature branch.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}-${{ github.event.pull_request.head.sha || github.sha }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
